@@ -1,0 +1,45 @@
+{
+  "name": "@rrq/remotion-compositions",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "remotion": "4.0.435",
+    "@remotion/renderer": "4.0.435",
+    "@remotion/bundler": "4.0.435",
+    "@remotion/shapes": "4.0.435",
+    "@remotion/motion-blur": "4.0.435",
+    "@remotion/noise": "4.0.435",
+    "@remotion/google-fonts": "4.0.435",
+    "@remotion/lottie": "4.0.435",
+    "recharts": "3.8.0",
+    "d3": "7.9.0",
+    "@nivo/core": "0.99.0",
+    "@nivo/bar": "0.99.0",
+    "@nivo/line": "0.99.0",
+    "@nivo/radar": "0.99.0",
+    "d3-geo": "^3.1.1",
+    "@vnedyalk0v/react19-simple-maps": "^3.0.0",
+    "lucide-react": "0.577.0",
+    "phosphor-react": "^1.4.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/d3-geo": "^3.1.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@remotion/cli": "4.0.435",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "react": "^19.x",
+    "react-dom": "^19.x"
+  },
+  "scripts": {
+    "preview": "npx remotion preview src/Root.tsx",
+    "typecheck": "tsc --noEmit"
+  }
+}

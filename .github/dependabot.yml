@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    # Group related packages into single PRs — reduces noise
+    groups:
+      aws-sdk:
+        patterns:
+          - "@aws-sdk/*"
+      remotion:
+        patterns:
+          - "remotion"
+          - "@remotion/*"
+      lambda-infra:
+        patterns:
+          - "@sparticuz/chromium"
+          - "puppeteer-core"
+      charts:
+        patterns:
+          - "recharts"
+          - "@nivo/*"
+          - "d3"
+          - "d3-geo"
+    # Only create PRs for minor and major updates — patches handled by Oracle domain 8
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]

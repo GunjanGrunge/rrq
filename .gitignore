@@ -1,0 +1,35 @@
+# Environment variables — NEVER commit credentials
+**/.env.local
+**/.env*.local
+.env
+.env.production
+
+# Dependencies
+**/node_modules/
+
+# Next.js build output
+**/.next/
+**/out/
+
+# Lambda / SST build artifacts
+**/dist/
+**/.build/
+**/.serverless/
+.sst/
+
+# TypeScript build info
+**/tsconfig.tsbuildinfo
+
+# macOS
+**/.DS_Store
+
+# Claude Code session data (personal)
+.claude/
+
+# Logs
+**/*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/

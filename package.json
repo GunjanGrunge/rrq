@@ -1,0 +1,24 @@
+{
+  "name": "rrq-content-factory",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "lambdas/*"
+  ],
+  "scripts": {
+    "dev": "npm run --workspace=apps/web dev",
+    "build": "npm run --workspace=apps/web build",
+    "typecheck": "tsc --noEmit --project apps/web/tsconfig.json",
+    "infra:deploy": "cd infra && npx sst deploy",
+    "infra:dev": "cd infra && npx sst dev",
+    "audit": "npm audit --audit-level=moderate",
+    "audit:critical": "npm audit --audit-level=critical",
+    "audit:fix": "npm audit fix --dry-run",
+    "lint:lambdas": "eslint --config .eslintrc.lambdas.js lambdas/"
+  },
+  "devDependencies": {
+    "eslint-plugin-security": "^3.0.1"
+  }
+}

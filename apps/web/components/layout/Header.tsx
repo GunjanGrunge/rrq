@@ -1,0 +1,66 @@
+"use client";
+
+import { UserButton } from "@clerk/nextjs";
+import { Clapperboard, History, Settings, Menu } from "lucide-react";
+import Link from "next/link";
+import PipelineProgress from "./PipelineProgress";
+import { useUIStore } from "@/lib/ui-store";
+
+export default function Header() {
+  const { toggleSidebar } = useUIStore();
+
+  return (
+    <header className="h-14 bg-bg-base border-b border-bg-border flex items-center px-6 justify-between shrink-0 z-40">
+      {/* Mobile: hamburger */}
+      <button
+        onClick={toggleSidebar}
+        className="md:hidden mr-3 text-text-secondary hover:text-text-primary transition-colors"
+        aria-label="Toggle menu"
+      >
+        <Menu size={18} />
+      </button>
+
+      {/* Left: Wordmark */}
+      <Link href="/" className="flex items-center gap-2 group">
+        <div className="relative">
+          <Clapperboard
+            size={18}
+            className="text-accent-primary transition-transform duration-200 group-hover:scale-110"
+          />
+        </div>
+        <span className="font-syne font-bold text-sm text-text-primary tracking-[0.2em] uppercase">
+          Content Factory
+        </span>
+      </Link>
+
+      {/* Centre: Pipeline progress */}
+      <div className="hidden md:flex absolute left-1/2 -translate-x-1/2">
+        <PipelineProgress />
+      </div>
+
+      {/* Right: Actions */}
+      <div className="flex items-center gap-4">
+        <button
+          className="text-text-secondary hover:text-text-primary transition-colors duration-200"
+          title="Job history"
+        >
+          <History size={16} />
+        </button>
+        <button
+          className="text-text-secondary hover:text-text-primary transition-colors duration-200"
+          title="Settings"
+        >
+          <Settings size={16} />
+        </button>
+        <UserButton
+          appearance={{
+            elements: {
+              avatarBox:
+                "w-7 h-7 ring-1 ring-bg-border hover:ring-accent-primary transition-all duration-200",
+            },
+          }}
+        />
+      </div>
+    </header>
+  );
+}

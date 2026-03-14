@@ -1,0 +1,20 @@
+{
+  "name": "@rrq/lambda-shorts-gen",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1008.0",
+    "@aws-sdk/client-dynamodb": "^3.1008.0",
+    "@aws-sdk/client-s3": "^3.1008.0",
+    "@aws-sdk/lib-dynamodb": "^3.1008.0",
+    "@rrq/lambda-types": "*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "typescript": "^5"
+  }
+}
