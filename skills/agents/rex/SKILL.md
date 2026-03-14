@@ -24,6 +24,7 @@ Always request Zeus memory injection before starting any scan.
 
 **Read `skills/data-harvest/SKILL.md`** — Rex uses harvestSignals() for all signal collection.
 **Read `skills/aria/SKILL.md`** — Rex sends greenlights to ARIA, not Regum directly.
+**Read `lib/rex/memory-store.ts`** — Rex uses the memory store for signal scoring, topic dedup, and niche relevance. Read before building any scan logic.
 ---
 
 ## Mission Protocol
@@ -423,4 +424,171 @@ OR
 Rex surfaces drift to Oracle and ARIA during the council so
 portfolio and historical pattern checks use the current frame,
 not a stale one.
+
+## Rex Memory Store
+
+Rex maintains four DynamoDB tables that form its self-optimising brain.
+All logic lives in `lib/rex/memory-store.ts`. Read that file before building
+any Rex memory feature.
+
+### Tables
+
+```
+source_weights    → per source_id rolling average of confidence and clip performance
+                    performanceMultiplier (0.2–1.5) directly scales signal scoring
+                    updated by Zeus after every published clip's analytics arrive
+
+topic_history     → SHA-256 keyed dedup store with DynamoDB native TTL
+                    default 72h cooldown — Rex skips any topic hash found here
+                    prevents re-generating same topic across scan cycles
+
+niche_profiles    → per channel: seed keywords, subreddit list, TikTok hashtags
+                    S3 key to 768-dim embedding vector (Bedrock Titan Embeddings v2)
+                    used for niche_relevance_score in the scoring model
+
+rrq_state         → single "default" record: trigger mode, last run time,
+                    queue depth, source rotation index, run count
+```
+
+### Signal Scoring Model
+
+```
+score(signal) =
+  niche_relevance_score(signal, niches[])   // 0–1, hard drop if < 0.4
+  × trend_velocity(signal)                  // normalised 0–1 per source
+  × source_performance_weight(source_id)    // from source_weights table
+  × (1 + recency_boost(signal.timestamp))   // +0.1 per hour of freshness, cap +0.5
+```
+
+**Niche relevance** — cosine similarity between topic embedding and niche profile vector.
+Currently implemented as keyword overlap heuristic; replace with Bedrock Titan embeddings
+when niche_profiles are populated.
+
+**Trend velocity** — normalised 0–1 within source:
+  - `NEW_ENTRY` autocomplete momentum → 1.0
+  - Gap topic from YouTube Suggestions → 0.9
+  - VERY_HIGH Polymarket engagement → 1.0
+  - Reddit upvote velocity / 1000, capped 1.0
+
+**Source performance weight** — `performanceMultiplier` from `source_weights` table.
+  - New source defaults to 1.0
+  - Updates via EMA: 80% old + 20% new after each published clip
+  - Clamped 0.2–1.5 — no source fully silenced or over-weighted
+
+**Recency boost** — +0.1 per hour since harvest, capped at +0.5 (5 hours)
+
+**Hard drop rule** — if niche_relevance < 0.4, score = 0 regardless of other factors.
+A signal outside our niche never reaches Regum.
+
+### Source Self-Optimisation Loop
+
+```
+Rex scans signal
+  ↓
+Rex scores with current source_weight.performanceMultiplier
+  ↓
+Rex greenlights top topics
+  ↓
+Qeon produces clip
+  ↓
+Zeus ingests analytics (views, retention, CTR)
+  ↓
+Zeus calls updateSourceWeight(sourceId, clipPerformance, signalConfidence)
+  ↓
+source_weights EMA updated
+  ↓
+Next Rex scan: better sources score higher, queried more in rotation
+```
+
+---
+
+## RRQ Trigger Modes
+
+Rex operates in three trigger modes. All three call the same `runRRQScan()` function.
+All logic lives in `lib/rex/rrq-trigger.ts`.
+
+### Mode 1: CRON
+
+EventBridge fires on schedule. Default: `rate(6 hours)`.
+Controlled by `RRQ_CRON_RULE` env var. No user input needed.
+
+In cron mode Rex **rotates** through intent-layer source groups each run:
+  - Run 1: Google Autocomplete + YouTube Suggestions + Reddit Trending + **TikTok**
+  - Run 2: Google Autocomplete + YouTube Suggestions + Reddit Trending + **Polymarket**
+  - Run 3: Google Autocomplete + YouTube Suggestions + Reddit Trending + **Keyword Planner**
+  - ...cycles
+
+Sources with `performanceMultiplier >= 1.2` are always included regardless of rotation.
+This limits API calls while ensuring high-performing sources are never missed.
+
+### Mode 2: QUEUE_LOW
+
+EventBridge checks queue depth every 30 minutes (`RRQ_QUEUE_LOW_CHECK_RULE`).
+If `pending production jobs < RRQ_QUEUE_LOW_THRESHOLD` (default: 3), a full scan fires.
+
+This ensures Rex keeps Qeon's queue fed autonomously — no human needed to notice
+the queue draining. The channel never goes idle between manual triggers.
+
+```typescript
+// Queue-low check flow:
+const queueDepth = await getQueueDepth(); // queries production-jobs by status=QUEUED
+if (queueDepth < state.queueLowThreshold) {
+  await runRRQScan({ mode: "queue_low", channelId });
+}
+```
+
+### Mode 3: MANUAL
+
+Dashboard button (Zeus Command Center → GO RRQ) or direct API call:
+
+```
+POST /api/rex/trigger
+Body: {
+  nicheOverride?: string,   // restrict this run to a specific niche
+  sourceFilter?:  string[], // restrict to specific source IDs
+  channelId?:     string,   // which channel's niche profile to use
+}
+```
+
+Manual mode queries ALL 6 intent-layer sources (no rotation).
+`nicheOverride` and `sourceFilter` are only available in manual mode.
+
+### Trigger Mode Wiring
+
+```
+EventBridge (rate 6h)      → Inngest rexCronWorkflow → handleCronTrigger()
+EventBridge (rate 30min)   → Inngest rexQueueCheckWorkflow → handleQueueLowTrigger()
+Dashboard GO RRQ button    → POST /api/rex/trigger → handleManualTrigger()
+```
+
+All three write greenlights to `agent-messages` with `type: "GREENLIGHT"` and
+`to: "THE_LINE"`. THE LINE routes to ARIA as usual. Flow is unchanged downstream.
+
+---
+
+## Checklist — Rex Memory Store + RRQ Triggers
+
+```
+[ ] Create lib/rex/memory-store.ts          ← DONE (see rrq-output/)
+[ ] Create lib/rex/rrq-trigger.ts           ← DONE (see rrq-output/)
+[ ] Add 4 tables to ALL_TABLES in infrastructure/SKILL.md
+[ ] Add 4 tables to CLAUDE.md Memory Stack section
+[ ] Enable TTL on topic_history table (attribute: "ttl")
+[ ] Add RRQ_QUEUE_LOW_THRESHOLD=3 to env + Vercel
+[ ] Create EventBridge rule: RRQ_CRON_RULE (default rate(6 hours))
+[ ] Create EventBridge rule: RRQ_QUEUE_LOW_CHECK_RULE (rate(30 minutes))
+[ ] Wire cron Lambda → handleCronTrigger()
+[ ] Wire queue-low Lambda → handleQueueLowTrigger()
+[ ] Wire POST /api/rex/trigger → handleManualTrigger()
+[ ] Plug updateSourceWeight() into Zeus post-publish analytics flow
+[ ] Seed default niche_profiles for each channel on onboarding complete
+[ ] Replace keyword-overlap niche relevance with Bedrock Titan embeddings
+    when embedding vectors are first computed (Phase 5+)
+[ ] Test cron rotation — verify source index increments each run
+[ ] Test queue-low — mock queue depth below threshold, verify scan fires
+[ ] Test manual with nicheOverride — verify source filter applied
+[ ] Test cooldown — produce topic, re-trigger, verify dedup fires
+[ ] Test source weight update — simulate clip analytics, verify EMA update
+```
+
 

@@ -143,6 +143,12 @@ export const ALL_TABLES = [
   { TableName: "prompt-update-queue",  PK: "updateId",   TTL: "expiresAt" }, // 14 days
   { TableName: "prompt-history",       PK: "agentId",    SK: "version", TTL: null }, // permanent — rollback
 
+  // Rex Memory Store additions
+  { TableName: "source_weights",  PK: "sourceId",    TTL: null },
+  { TableName: "topic_history",   PK: "topicHash",   TTL: "ttl"       }, // 72h default
+  { TableName: "niche_profiles",  PK: "channelId",   TTL: null },
+  { TableName: "rrq_state",       PK: "instanceId",  TTL: null },
+
 ] as const;
 ```
 

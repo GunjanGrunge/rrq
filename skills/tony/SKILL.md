@@ -248,3 +248,19 @@ const codeAgent = new sst.aws.Function("CodeAgent", {
   link: [assetsBucket],
 });
 ```
+## Live Toolbox — Oracle Integration
+
+TONY's available package list is not static. At every job start, Zeus injects
+the current approved toolbox into TONY's Haiku system prompt via the
+agent-prompts-dynamic table.
+
+The injection includes:
+  - All confirmed packages from the static toolbox (always present)
+  - New packages Oracle approved since last deployment (additions)
+  - Deprecated packages with their replacements noted (TONY avoids these)
+
+TONY's Haiku code-gen prompt always starts with:
+"Available packages (current as of this run): [injected list]"
+
+This means TONY automatically adopts newly approved packages without
+any redeployment. Oracle approves → Zeus injects → TONY uses it same day.

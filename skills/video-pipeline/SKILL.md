@@ -18,28 +18,44 @@ Orchestrate the full audio-visual production from script JSON to final MP4 — l
 
 ## Architecture
 ```
-Step 1: audio-gen Lambda        → Script + ElevenLabs cues → MP3
-Step 2a: avatar-gen EC2         → Talking head segments → SkyReels V2
-          (g5.12xlarge)           Reference image + MP3 → Avatar MP4
-Step 2b: broll-gen EC2          → B-roll / environment segments → Wan2.2
-          (g5.2xlarge)            Text prompt → B-roll MP4
-Step 2c: image-gen EC2          → Stills / thumbnails / section cards → FLUX.2 [klein] 4B
-          (g4dn.xlarge)           ALWAYS HOT — dedicated instance, never shared
-                                  Text prompt + optional reference images → PNG
-Step 3: research-visual Lambda  → Niche-specific visual assets
-                                   (screen recordings / paper figures /
-                                    data viz / official images)
-Step 4: visual-gen Lambda       → Chart.js / Mermaid / HTML visuals → PNG/MP4
-Step 5: av-sync Lambda          → All segments + audio + subtitles → MP4 (FFmpeg)
-Step 6: shorts-gen Lambda       → Main MP4 → Vertical 9:16 Short (FFmpeg)
+Step 1    audio-gen Lambda
+          Script + ElevenLabs cues → MP3
+
+Step 2a   avatar-gen EC2 (g5.12xlarge — SkyReels V2)
+          Reference image + MP3 → Talking head MP4 segments
+          Spot instance — spins up per job, self-terminates
+
+Step 2b   broll-gen EC2 (g5.2xlarge — Wan2.2)
+          Text prompt → B-roll / environment MP4 segments
+          Spot instance — spins up per job, self-terminates
+
+Step 2c   code-agent Lambda (TONY)
+          Haiku generates Remotion / Recharts / D3 / Nivo / @remotion/lottie code
+          Sandbox executes → MP4 or PNG to S3
+          Handles: SECTION_CARD, CONCEPT_IMAGE, THUMBNAIL_SRC,
+                   CHART, DIAGRAM, SLIDE, GRAPHIC_OVERLAY,
+                   animated infographics, comparison tables,
+                   counters, timelines, overlays
+          No EC2. No always-on cost. Fires instantly.
+          Oracle Domain 9 keeps TONY's package toolbox current.
+
+Step 3    research-visual Lambda
+          Screen recordings, paper figures, official press images
+          Niche-specific — AI papers, motorsport press kits, etc.
+
+Step 4    av-sync Lambda
+          All segments + audio + subtitles → final MP4 (FFmpeg)
+
+Step 5    shorts-gen Lambda
+          Main MP4 → Vertical 9:16 Short (FFmpeg)
 ```
 
 All assets stored in S3. Workers pull from S3, process, push back to S3.
 
-The image-gen EC2 (g4dn.xlarge) is the only always-on instance.
-SkyReels and Wan2.2 spin up per job and self-terminate. FLUX stays running
-24/7 — the cost (~$0.19/hr on-demand, ~$0.10/hr reserved) is lower than the
-latency and cold-start penalty of spinning it up per job.
+Two EC2 GPU instances only — both spot, both per-job, both self-terminate.
+No always-on instances. Zero idle EC2 cost.
+TONY is a Lambda — no pre-warming, no reserved capacity, fires in milliseconds.
+Production time ≈ max(SkyReels ~12min, Wan2.2 ~10min, TONY ~2min) = ~12min.
 
 ---
 
@@ -53,21 +69,25 @@ any EC2 instance is started.
 type SegmentRoute =
   | "SKYREELS"        // talking head / avatar segments
   | "WAN2"            // b-roll video / atmospheric motion
-  | "FLUX"            // stills, section cards, thumbnail source images
-  | "LAMBDA_VISUAL"   // Chart.js / Mermaid / HTML data viz
+  | "TONY"            // stills, animated infographics, charts, overlays,
+                      // comparison tables, section cards, thumbnails
+                      // TONY generates Remotion/Recharts/D3/Nivo code
+                      // Haiku writes the script → sandbox executes → MP4/PNG to S3
+                      // Oracle Domain 9 keeps TONY's package toolbox current
+  | "LAMBDA_VISUAL"   // legacy Chart.js / Mermaid / HTML data viz (TONY preferred)
   | "RESEARCH_VISUAL" // screen recordings, paper figures, official images
 
 function routeSegment(beat: MuseBeat): SegmentRoute {
   if (beat.visualType === "TALKING_HEAD")    return "SKYREELS";
   if (beat.visualType === "SPLIT_SCREEN")    return "SKYREELS";
   if (beat.visualType === "B_ROLL")          return "WAN2";
-  if (beat.visualType === "SECTION_CARD")    return "FLUX";       // title/transition stills
-  if (beat.visualType === "CONCEPT_IMAGE")   return "FLUX";       // illustrative still
-  if (beat.visualType === "THUMBNAIL_SRC")   return "FLUX";       // thumbnail source image
-  if (beat.visualType === "CHART")           return "LAMBDA_VISUAL";
-  if (beat.visualType === "DIAGRAM")         return "LAMBDA_VISUAL";
-  if (beat.visualType === "SLIDE")           return "LAMBDA_VISUAL";
-  if (beat.visualType === "GRAPHIC_OVERLAY") return "LAMBDA_VISUAL";
+  if (beat.visualType === "SECTION_CARD")    return "TONY";
+  if (beat.visualType === "CONCEPT_IMAGE")   return "TONY";
+  if (beat.visualType === "THUMBNAIL_SRC")   return "TONY";
+  if (beat.visualType === "CHART")           return "TONY";
+  if (beat.visualType === "DIAGRAM")         return "TONY";
+  if (beat.visualType === "SLIDE")           return "TONY";
+  if (beat.visualType === "GRAPHIC_OVERLAY") return "TONY";
   if (beat.visualType === "IMAGE")           return "RESEARCH_VISUAL";
   if (beat.visualType === "SCREEN_RECORD")   return "RESEARCH_VISUAL";
   return "WAN2"; // default
@@ -76,16 +96,15 @@ function routeSegment(beat: MuseBeat): SegmentRoute {
 // Batch by route before spinning up instances
 const skyreelsBatch  = beats.filter(b => routeSegment(b) === "SKYREELS");
 const wan2Batch      = beats.filter(b => routeSegment(b) === "WAN2");
-const fluxBatch      = beats.filter(b => routeSegment(b) === "FLUX");
-const lambdaBatch    = beats.filter(b => routeSegment(b) === "LAMBDA_VISUAL");
+const tonyBatch      = beats.filter(b => routeSegment(b) === "TONY");
 const researchBatch  = beats.filter(b => routeSegment(b) === "RESEARCH_VISUAL");
 
-// Fire all workers in parallel — FLUX is always hot, others spin up on demand
+// Fire all workers in parallel
+// TONY is a Lambda — no EC2 spin-up needed, fires immediately
 const results = await Promise.allSettled([
   skyreelsBatch.length > 0  ? runSkyReelsInstance(jobId, skyreelsBatch)  : Promise.resolve(),
   wan2Batch.length > 0      ? runWan2Instance(jobId, wan2Batch)           : Promise.resolve(),
-  fluxBatch.length > 0      ? runFluxGeneration(jobId, fluxBatch)         : Promise.resolve(),
-  lambdaBatch.length > 0    ? runVisualLambdas(jobId, lambdaBatch)        : Promise.resolve(),
+  tonyBatch.length > 0      ? invokeTonyBatch(jobId, tonyBatch)           : Promise.resolve(),
   researchBatch.length > 0  ? runResearchVisuals(jobId, researchBatch)    : Promise.resolve(),
 ]);
 
@@ -106,7 +125,7 @@ async function validateWorkerResults(
   jobId: string,
   results: PromiseSettledResult<void>[]
 ): Promise<void> {
-  const workerNames = ["skyreels", "wan2", "flux", "lambda-visual", "research-visual"];
+  const workerNames = ["skyreels", "wan2", "tony", "research-visual"];
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
@@ -123,30 +142,43 @@ async function validateWorkerResults(
     }
   }
 }
-
 async function applyWorkerFallback(jobId: string, workerName: string): Promise<void> {
   switch (workerName) {
-    case "flux":
-      // FLUX failure → use solid-colour section cards + Pexels stock for concept images
-      // Thumbnail generation retried up to 3× before falling back to template
-      await generateFallbackStills(jobId);
+    case "tony":
+      // TONY failure → two-tier fallback:
+      // Tier 1: retry with simplified prompt (Haiku regenerates, fewer packages)
+      // Tier 2: if retry fails → solid-colour section card with text overlay via FFmpeg
+      // Thumbnails: fall back to plain title card — never block the pipeline
+      // TONY failures are non-critical — pipeline always continues
+      await retryTonyWithSimplifiedPrompt(jobId);
       break;
+
     case "wan2":
       // Wan2.2 failure → substitute Pexels stock b-roll for affected beats
       await substituteStockBroll(jobId);
       break;
+
     case "skyreels":
       // SkyReels failure → critical, alert Zeus + Jason immediately via Comms
+      // Avatar generation is the only worker that aborts the pipeline
       await alertCriticalFailure(jobId, "skyreels", "Avatar generation failed — video cannot publish");
-      throw new Error("SKYREELS_CRITICAL_FAILURE"); // abort pipeline, do not publish
-    case "lambda-visual":
-      // Data viz failure → substitute static screenshot of data source
-      await generateStaticDataFallback(jobId);
-      break;
+      throw new Error("SKYREELS_CRITICAL_FAILURE");
+
     case "research-visual":
       // Research visual failure → skip affected beats, Wan2.2 abstract fill
       await substituteAbstractFill(jobId);
       break;
+  }
+}
+
+async function retryTonyWithSimplifiedPrompt(jobId: string): Promise<void> {
+  // Haiku regenerates with explicit instruction to use only core packages:
+  // remotion, recharts, d3 — no experimental Oracle-injected packages
+  // If retry also fails → generateTextFallbackCards() handles gracefully
+  try {
+    await invokeTonyBatch(jobId, await getFailedTonyBeats(jobId), { simplified: true });
+  } catch {
+    await generateTextFallbackCards(jobId);
   }
 }
 ```
@@ -507,625 +539,36 @@ async function runWan2Instance(
 
 ---
 
-## Worker 2c: Image Generation (EC2 g4dn.xlarge — FLUX.2 [klein] 4B) ← ALWAYS ON
-
-FLUX.2 [klein] 4B generates all still images: section title cards, concept
-illustrations, thumbnail source images, and any CONCEPT_IMAGE beat in Muse's
-blueprint. It runs 24/7 as a dedicated always-hot instance — no cold start,
-no resource contention with Wan2.2 or SkyReels.
-
-### Why FLUX.2 [klein] 4B
-
-FLUX.2 [klein] 4B is Apache 2.0 licensed — fully commercial, self-hosted,
-zero per-image API cost. 4B distilled model with sub-second inference on
-A10G. Supports multi-reference generation (up to 4 reference images) for
-avatar/brand consistency across thumbnails. Text rendering capability is
-exceptional — benchmark-leading for text-in-image for section cards.
-
-Quality goal: every image passes Vera's Visual QA on first attempt.
-Retry budget exists but the target is zero retries. Prompt quality
-and inference settings are tuned for quality over speed.
-
-### EC2 Spec
-```
-Instance:     g4dn.xlarge
-GPU:          1× NVIDIA T4 (16GB VRAM)
-Pricing:      ~$0.526/hr on-demand OR ~$0.19/hr reserved 1yr
-              Reserved is the right call — instance runs 24/7
-Model:        FLUX.2-klein-4B distilled (FP8 quantised → ~8GB VRAM)
-              8GB VRAM used → 8GB headroom for batched inference
-Output:       1024×1024 PNG (16:9 crops applied by Qeon post-generation)
-Licence:      Apache 2.0 — commercial use confirmed
-Model path:   s3://content-factory-assets/models/flux-klein-4b/
-```
-
-### S3 Model Structure
-```
-s3://content-factory-assets/
-  models/
-    flux-klein-4b/
-      flux-2-klein-4b-fp8.safetensors   ← ~8GB
-      text_encoder/                      ← T5 encoder
-      vae/                               ← VAE weights
-      configs/
-  reference-images/
-    avatars/                             ← per avatar reference PNGs for consistency
-    brand/                               ← channel logo, colour palette reference
-```
-
-### Inference Server — Always Running
-
-The g4dn.xlarge runs a persistent FastAPI inference server, not a
-one-shot script. Requests arrive via internal HTTP from the pipeline
-Lambda. Model stays loaded in VRAM — no model reload per request.
-
-```python
-# inference_server.py — runs on startup, stays alive
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
-from diffusers import FluxPipeline
-from contextlib import asynccontextmanager
-import torch
-import asyncio
-import uuid
-import boto3
-import logging
-from typing import Optional
-
-logger = logging.getLogger(__name__)
-
-# Global pipeline — loaded once, stays in VRAM
-pipe: FluxPipeline = None
-generation_semaphore = asyncio.Semaphore(2)  # max 2 concurrent generations
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global pipe
-    logger.info("Loading FLUX.2 [klein] 4B FP8...")
-    pipe = FluxPipeline.from_single_file(
-        "/models/flux-klein-4b-fp8.safetensors",
-        torch_dtype=torch.float16,
-    )
-    pipe = pipe.to("cuda")
-    pipe.enable_vae_slicing()       # reduces peak VRAM during decode
-    pipe.enable_attention_slicing() # safer for batched inference on 16GB
-    logger.info("FLUX pipeline ready")
-    yield
-    # Shutdown cleanup
-    del pipe
-    torch.cuda.empty_cache()
-
-app = FastAPI(lifespan=lifespan)
-
-@app.post("/generate")
-async def generate(request: GenerationRequest):
-    """
-    Single image generation with quality-first settings.
-    Returns S3 path of saved PNG.
-    """
-    async with generation_semaphore:
-        return await _generate_image(request)
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "gpu_memory_free_gb": _get_free_vram()}
-
-def _get_free_vram() -> float:
-    free, total = torch.cuda.mem_get_info()
-    return round(free / 1e9, 2)
-```
-
-### Generation Request Contract
-
-```typescript
-interface FluxGenerationRequest {
-  jobId:       string;
-  beatId:      string;
-  prompt:      string;           // constructed by Qeon from Muse's visualNote
-  negativePrompt?: string;       // what to avoid
-  referenceImages?: string[];    // S3 paths — avatar refs for consistency (max 4)
-  imageType:   "SECTION_CARD" | "CONCEPT_IMAGE" | "THUMBNAIL_SRC";
-  aspectRatio: "16:9" | "1:1" | "9:16";
-  qualityPreset: "standard" | "high";   // always "high" for thumbnails
-  retryAttempt: number;          // 0 = first attempt
-}
-
-interface FluxGenerationResult {
-  success:     boolean;
-  s3Path?:     string;
-  failReason?: string;           // Vera failure reason on retry path
-  latencyMs:   number;
-  attempt:     number;
-}
-```
-
-### Inference Settings — Quality First
-
-```python
-QUALITY_PRESETS = {
-    "standard": {
-        "num_inference_steps": 28,    # distilled 4B works well at 28
-        "guidance_scale":      3.5,
-        "height":              1024,
-        "width":               1024,
-    },
-    "high": {
-        "num_inference_steps": 40,    # more steps = better quality, worth the extra ~2 sec
-        "guidance_scale":      4.0,
-        "height":              1024,
-        "width":               1024,
-    }
-}
-# Quality note: we are optimising for Vera pass rate, not speed.
-# A thumbnail at 40 steps that passes first time beats 28 steps + 2 retries.
-```
-
-### Prompt Construction — Quality-First
-
-Qeon translates Muse's visualNote into a FLUX-optimised prompt.
-The prompt structure is specific — FLUX.2 klein responds to clear subject
-specification, style anchors, and technical quality terms.
-
-```typescript
-async function buildFluxPrompt(beat: MuseBeat, imageType: string): Promise<{
-  prompt: string;
-  negativePrompt: string;
-}> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",  // Sonnet for richer prompt creativity
-      max_tokens: 300,
-      messages: [{
-        role: "user",
-        content: `You are writing a prompt for FLUX.2 [klein], a text-to-image model.
-                  Image type: ${imageType}
-                  Visual note from creative director: "${beat.visualNote}"
-                  Topic: "${beat.topicContext}"
-                  Channel niche: "${beat.niche}"
-
-                  Write a FLUX prompt following this structure:
-                  [main subject, precise description] [action or state] [environment or background]
-                  [lighting quality] [style anchors] [technical quality terms]
-
-                  Rules:
-                  - Max 60 words
-                  - No people or faces (unless imageType is THUMBNAIL_SRC with avatar)
-                  - For SECTION_CARD: include clean text placement space, bold typography hint
-                  - For THUMBNAIL_SRC: cinematic, high contrast, thumbnail-optimised composition
-                  - For CONCEPT_IMAGE: editorial illustration quality, informative
-                  - Style: photorealistic OR illustrated — match the channel's established aesthetic
-
-                  Also write a negative prompt (max 25 words) to avoid: blur, watermarks,
-                  low quality, distorted text, duplicate elements, oversaturated colours.
-
-                  Return JSON only:
-                  { "prompt": "...", "negativePrompt": "..." }`
-      }]
-    })
-  });
-
-  const data = await response.json();
-  const result = JSON.parse(data.content[0].text);
-  return result;
-}
-```
-
-### Full Retry Logic — Quality Gate
-
-This is the core quality loop. Vera inspects every FLUX output.
-If it fails, Qeon analyses the failure reason, refines the prompt,
-and retries with adjusted settings. Maximum 3 attempts before fallback.
-
-```typescript
-const FLUX_MAX_RETRIES  = 3;
-const FLUX_RETRY_DELAYS = [0, 3000, 5000]; // ms between attempts (0 = immediate first try)
-
-async function runFluxGeneration(
-  jobId: string,
-  beats: MuseBeat[]
-): Promise<void> {
-
-  // Process beats concurrently — FLUX server handles semaphore internally
-  const generationPromises = beats.map(beat =>
-    generateWithRetry(jobId, beat)
-  );
-
-  const results = await Promise.allSettled(generationPromises);
-
-  // Collect any beats that exhausted all retries
-  const hardFailures = results
-    .map((r, i) => ({ result: r, beat: beats[i] }))
-    .filter(({ result }) => result.status === "rejected");
-
-  if (hardFailures.length > 0) {
-    // Log which beats failed — Vera QA will catch visually
-    // Fallback: solid-colour card with text overlay for section cards
-    await generateTextFallbackCards(jobId, hardFailures.map(f => f.beat));
-    logger.warn(`[flux] ${hardFailures.length} beats fell back to text cards`, { jobId });
-  }
-}
-
-async function generateWithRetry(
-  jobId: string,
-  beat: MuseBeat
-): Promise<FluxGenerationResult> {
-
-  let lastFailReason: string | null = null;
-  let currentPrompt = await buildFluxPrompt(beat, beat.visualType);
-
-  for (let attempt = 0; attempt < FLUX_MAX_RETRIES; attempt++) {
-
-    // Delay between retries (not on first attempt)
-    if (attempt > 0 && FLUX_RETRY_DELAYS[attempt] > 0) {
-      await sleep(FLUX_RETRY_DELAYS[attempt]);
-    }
-
-    logger.info(`[flux] attempt ${attempt + 1}/${FLUX_MAX_RETRIES}`, {
-      jobId,
-      beatId: beat.id,
-      visualType: beat.visualType,
-      prompt: currentPrompt.prompt.slice(0, 80)
-    });
-
-    // Call FLUX inference server with timeout
-    const result = await callFluxServerWithTimeout(jobId, beat, currentPrompt, attempt);
-
-    if (!result.success) {
-      // Infrastructure failure (timeout, OOM, server error)
-      lastFailReason = result.failReason ?? "unknown infrastructure error";
-      logger.warn(`[flux] inference failed on attempt ${attempt + 1}`, {
-        beatId: beat.id,
-        reason: lastFailReason
-      });
-
-      // If OOM — reduce inference steps for next attempt
-      if (lastFailReason.includes("OOM") || lastFailReason.includes("CUDA out of memory")) {
-        currentPrompt = await buildFluxPrompt(beat, beat.visualType); // fresh prompt
-        // signal reduced quality on next attempt
-        beat.qualityPreset = "standard"; // downgrade if high was set
-      }
-      continue; // next attempt
-    }
-
-    // Image generated — run Vera Visual QA inline
-    const veraResult = await veraVisualQA(result.s3Path!, beat.imageType, beat.id);
-
-    if (veraResult.passed) {
-      // SUCCESS — store result and move on
-      await saveFluxResult(jobId, beat.id, result.s3Path!);
-      logger.info(`[flux] PASSED Vera QA on attempt ${attempt + 1}`, { beatId: beat.id });
-      return result;
-    }
-
-    // Vera failed — refine prompt using Vera's specific failure reason
-    lastFailReason = veraResult.failReason;
-    logger.warn(`[flux] Vera QA FAILED on attempt ${attempt + 1}`, {
-      beatId: beat.id,
-      veraReason: lastFailReason
-    });
-
-    if (attempt < FLUX_MAX_RETRIES - 1) {
-      // Refine prompt based on what Vera flagged
-      currentPrompt = await refinePromptFromVeraFeedback(
-        currentPrompt,
-        lastFailReason!,
-        beat
-      );
-    }
-  }
-
-  // All retries exhausted
-  logger.error(`[flux] EXHAUSTED all ${FLUX_MAX_RETRIES} attempts`, {
-    jobId,
-    beatId: beat.id,
-    lastFailReason
-  });
-
-  throw new Error(`FLUX_EXHAUSTED: ${beat.id} — ${lastFailReason}`);
-}
-```
-
-### Timeout Handling
-
-Every FLUX call is wrapped with a hard timeout. T4 inference should
-complete within 45 seconds for a 1024×1024 high-quality image.
-If it hangs (OOM, deadlock, network issue) — we abort and retry.
-
-```typescript
-const FLUX_INFERENCE_TIMEOUT_MS  = 60_000;  // 60 sec hard timeout per attempt
-const FLUX_HEALTH_CHECK_INTERVAL = 30_000;  // 30 sec heartbeat check
-
-async function callFluxServerWithTimeout(
-  jobId: string,
-  beat: MuseBeat,
-  promptPair: { prompt: string; negativePrompt: string },
-  attempt: number
-): Promise<FluxGenerationResult> {
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-    logger.warn(`[flux] request timeout after ${FLUX_INFERENCE_TIMEOUT_MS}ms`, {
-      jobId,
-      beatId: beat.id,
-      attempt
-    });
-  }, FLUX_INFERENCE_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(`${FLUX_SERVER_URL}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        jobId,
-        beatId:        beat.id,
-        prompt:        promptPair.prompt,
-        negativePrompt: promptPair.negativePrompt,
-        referenceImages: beat.referenceImages ?? [],
-        imageType:     beat.visualType,
-        aspectRatio:   beat.aspectRatio ?? "16:9",
-        qualityPreset: beat.visualType === "THUMBNAIL_SRC" ? "high" : (beat.qualityPreset ?? "high"),
-        retryAttempt:  attempt,
-      } satisfies FluxGenerationRequest),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      return {
-        success:    false,
-        failReason: `HTTP ${response.status}: ${errorBody.slice(0, 200)}`,
-        latencyMs:  0,
-        attempt,
-      };
-    }
-
-    const data: FluxGenerationResult = await response.json();
-    return data;
-
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    if (err.name === "AbortError") {
-      return {
-        success:    false,
-        failReason: `TIMEOUT after ${FLUX_INFERENCE_TIMEOUT_MS}ms`,
-        latencyMs:  FLUX_INFERENCE_TIMEOUT_MS,
-        attempt,
-      };
-    }
-
-    return {
-      success:    false,
-      failReason: err.message ?? "unknown fetch error",
-      latencyMs:  0,
-      attempt,
-    };
-  }
-}
-```
-
-### Prompt Refinement from Vera Feedback
-
-When Vera fails a FLUX image, she returns a specific failure reason.
-Qeon uses that reason to construct a refined prompt before the next attempt.
-This is not generic retry — it is targeted correction.
-
-```typescript
-async function refinePromptFromVeraFeedback(
-  originalPrompt: { prompt: string; negativePrompt: string },
-  veraFailReason: string,
-  beat: MuseBeat
-): Promise<{ prompt: string; negativePrompt: string }> {
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 300,
-      messages: [{
-        role: "user",
-        content: `You are refining a FLUX.2 image generation prompt based on QA failure feedback.
-
-                  Original prompt: "${originalPrompt.prompt}"
-                  Original negative prompt: "${originalPrompt.negativePrompt}"
-                  Vera QA failure reason: "${veraFailReason}"
-                  Image type: "${beat.visualType}"
-                  Visual note: "${beat.visualNote}"
-
-                  Rules:
-                  - Address SPECIFICALLY what Vera flagged — do not change unrelated elements
-                  - If Vera flagged blur → add "sharp focus, crisp details" to prompt
-                  - If Vera flagged cluttered → simplify subject, add "clean minimal composition"
-                  - If Vera flagged wrong aspect → keep prompt but add crop guidance
-                  - If Vera flagged text quality → add "perfect legible typography, clean font"
-                  - If Vera flagged wrong mood → adjust lighting and style anchors only
-                  - Strengthen the negative prompt to explicitly exclude what Vera rejected
-
-                  Return JSON only:
-                  { "prompt": "...", "negativePrompt": "..." }`
-      }]
-    })
-  });
-
-  const data = await response.json();
-  return JSON.parse(data.content[0].text);
-}
-```
-
-### Health Check + Server Recovery
-
-The pipeline Lambda checks FLUX server health before dispatching a job.
-If the server is unresponsive — it attempts to restart the EC2 instance
-before proceeding, not abort.
-
-```typescript
-async function ensureFluxServerHealthy(): Promise<void> {
-  const MAX_HEALTH_RETRIES   = 3;
-  const HEALTH_RETRY_DELAY   = 10_000; // 10 sec between health checks
-  const HEALTH_TIMEOUT_MS    = 5_000;  // 5 sec per health check call
-
-  for (let i = 0; i < MAX_HEALTH_RETRIES; i++) {
-    try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
-
-      const res = await fetch(`${FLUX_SERVER_URL}/health`, {
-        signal: controller.signal
-      });
-
-      if (res.ok) {
-        const { status, gpu_memory_free_gb } = await res.json();
-        if (status === "ok" && gpu_memory_free_gb > 2) {
-          logger.info(`[flux-health] healthy — ${gpu_memory_free_gb}GB free`);
-          return; // healthy, proceed
-        }
-      }
-    } catch {
-      logger.warn(`[flux-health] health check ${i + 1} failed`);
-    }
-
-    if (i < MAX_HEALTH_RETRIES - 1) {
-      await sleep(HEALTH_RETRY_DELAY);
-    }
-  }
-
-  // Server unresponsive — attempt EC2 restart before failing
-  logger.error("[flux-health] server unresponsive — attempting EC2 reboot");
-  await rebootFluxInstance();
-  await sleep(60_000); // wait 60 sec for reboot + model reload
-
-  // Final check after reboot
-  const finalCheck = await fetch(`${FLUX_SERVER_URL}/health`).catch(() => null);
-  if (!finalCheck?.ok) {
-    throw new Error("FLUX_SERVER_UNRECOVERABLE — manual intervention required");
-  }
-}
-```
-
-### AMI Setup — FLUX (one-time)
-```bash
-# On a fresh g4dn.xlarge Ubuntu 22.04 + CUDA 12:
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-pip install diffusers transformers accelerate fastapi uvicorn
-
-# Download FLUX.2 klein 4B FP8 from HuggingFace
-huggingface-cli download black-forest-labs/FLUX.2-klein \
-  --include "flux-2-klein-4b-fp8.safetensors" \
-  --local-dir /models/flux-klein-4b/
-
-# Copy inference server
-cp /app/inference_server.py /models/
-
-# Start server on boot
-echo "@reboot cd /models && uvicorn inference_server:app --host 0.0.0.0 --port 8080" | crontab -
-
-# Save AMI — this instance runs persistently, AMI is for recovery
-```
-
-### Cost Model
-```
-g4dn.xlarge on-demand:    $0.526/hr
-g4dn.xlarge 1yr reserved: $0.190/hr  ← right call for always-on
-1yr reserved × 24hr × 30d = ~$136/month fixed
-
-Per-image cost:            $0.00 (beyond instance fixed cost)
-10 images/video:           $0.00 marginal cost
-Vera retries (up to 3×):  $0.00 marginal cost
-30 images/day worst case: $0.00 marginal cost
-
-vs fal.ai at $0.03/image:
-  30 images/day × 30 days = $27/month at 1-user volume
-  At 100 users → $2,700/month
-  Self-hosted pays off at ~5 users
-```
-
----
-
-### When to Supplement FLUX with Research Visuals
-
-FLUX generates concept images and section cards. But some beats have
-better legal assets than any generated image:
-
-```typescript
-function selectImageSource(beat: MuseBeat, niche: string): "FLUX" | "RESEARCH_VISUAL" {
-  // Paper figures are more credible than generated concept art for AI niche
-  if (niche === "AI_NEWS" && beat.hasPaperFigure) return "RESEARCH_VISUAL";
-  // Official team images for motorsport editorial beats
-  if (niche === "MOTORSPORT" && beat.hasOfficialPressImage) return "RESEARCH_VISUAL";
-  // For thumbnails — FLUX always (brand consistency, reference image control)
-  if (beat.visualType === "THUMBNAIL_SRC") return "FLUX";
-  // Everything else — FLUX
-  return "FLUX";
-}
-```
-
----
-
-### When to Supplement Wan2.2 with Stock Footage
-
-Wan2.2 generates abstract and atmospheric b-roll well. But some niches
-have better legal stock options that look more authentic:
-
-```typescript
-function selectBrollSource(beat: MuseBeat, niche: string): "WAN2" | "STOCK" {
-  // For AI niche — paper figures and screen recordings are more credible
-  // than abstract generated footage
-  if (niche === "AI_NEWS" && beat.hasPaperFigure) return "STOCK"; // use actual figure
-  // For sports niches — legal stock racing footage from Pexels looks better
-  // than generated racing scenes
-  if (["F1", "MOTOGP"].includes(niche) && beat.stockAvailable) return "STOCK";
-  // Default — Wan2.2 for everything else
-  return "WAN2";
-}
-```
-
-### Avatar Layout Options (user picks in Settings)
-
-**Layout A — Corner Presenter (default)**
-```
-Avatar occupies bottom-right 30% of frame
-B-roll fills the rest
-Good for: most topics, keeps content visual
-```
-
-**Layout B — Split Screen**
-```
-Avatar left 40%, B-roll right 60%
-Good for: reviews, comparisons, analysis topics
-```
-
-**Layout C — Full Screen Avatar**
-```
-Avatar fills entire frame for hook + CTA sections
-B-roll used only for body sections
-Good for: personal story, opinion, documentary
-```
-
-Layout selection is per-section based on `visualNote` — hook and CTA default to full screen, body sections default to corner or split.
-
-### FFmpeg Compositing
-```bash
-# Layout A — corner presenter
-ffmpeg -i broll.mp4 -i avatar_output.mp4 \
-  -filter_complex \
-  "[1:v]scale=480:270[avatar]; \
-   [0:v][avatar]overlay=W-w-20:H-h-20" \
-  -c:a copy composited.mp4
-
-# Layout B — split screen
-ffmpeg -i broll.mp4 -i avatar_output.mp4 \
-  -filter_complex \
-  "[0:v]scale=768:1080,pad=1920:1080:768:0[right]; \
-   [1:v]scale=768:1080[left]; \
-   [right][left]overlay=0:0" \
-  -c:a copy composited.mp4
-```
+## Worker 2c: TONY — Code Agent (Lambda)
+
+TONY is the code agent Lambda that replaced FLUX for all still and animated
+visual generation. No EC2. No always-on instance. Fires instantly per job.
+
+Full implementation: `lambdas/code-agent/` and `skills/tony/SKILL.md`
+Pipeline wiring: `lib/video-pipeline/tony-batch.ts` via `invokeTonyBatch()`
+
+TONY handles every beat routed to "TONY" in routeSegment():
+  SECTION_CARD, CONCEPT_IMAGE, THUMBNAIL_SRC   — stills and title cards
+  CHART, DIAGRAM, SLIDE, GRAPHIC_OVERLAY       — data visualisations
+  Animated infographics, comparison tables      — Remotion compositions
+  Counters, timelines, overlays, Lottie         — motion graphics
+
+How it works:
+  1. Qeon passes beat array to invokeTonyBatch()
+  2. Each beat → CodeAgentInput with task + context + outputType
+  3. Haiku generates Remotion/Recharts/D3/Nivo code
+  4. Sandbox executes via child_process.fork() with 30s SIGKILL
+  5. Output MP4 or PNG pushed to S3
+  6. S3 path returned to av-sync for final stitch
+
+Fallback on failure:
+  Tier 1 — retry with simplified prompt (core packages only)
+  Tier 2 — solid-colour text card via FFmpeg
+  TONY failure never aborts the pipeline — only SkyReels is critical
+
+Oracle Domain 9 keeps TONY's package toolbox current automatically.
+New packages approved by Oracle → Zeus injects → TONY uses same day.
+No redeployment needed.
 
 ---
 
@@ -2009,27 +1452,24 @@ broll-gen (Wan2.2):
   handles:        B_ROLL, environment, atmosphere beats only
   upgrade_path:   update model_path when Wan2.3/2.4 weights release
 
-image-gen (FLUX.2 [klein] 4B):
-  instance_type:  g4dn.xlarge
-  gpu:            1× NVIDIA T4 (16GB VRAM)
-  lifecycle:      ALWAYS ON — persistent, never terminates
-  pricing:        1yr reserved ~$0.190/hr → ~$136/month fixed
-  ami:            pre-baked with FLUX.2 klein 4B FP8 + FastAPI server
-  model:          FLUX.2-klein-4B (FP8 quantised → ~8GB VRAM)
-  model_path:     s3://content-factory-assets/models/flux-klein-4b/
-  licence:        Apache 2.0 — commercial use confirmed
-  server_port:    8080 (FastAPI inference server, always running)
-  health_check:   GET /health every 5min via CloudWatch alarm
-  restart_policy: auto-reboot on health check failure (CloudWatch + Lambda)
-  handles:        SECTION_CARD, CONCEPT_IMAGE, THUMBNAIL_SRC beats
-  max_retries:    3 per image (Vera QA inline)
-  timeout_per_req: 60s hard abort per attempt
-  upgrade_path:   swap weights to FLUX.2-klein-9B when BFL licence available
+image-gen (Code-agent (TONY):
+  type:           Lambda (code-agent/)
+  model:          Haiku 4.5 — generates Remotion/Recharts/D3/Nivo/Lottie code
+  execution:      child_process.fork() sandboxed JS — 30s SIGKILL
+  lifecycle:      Lambda — no EC2, no always-on, fires instantly per beat
+  pricing:        ~$0.01/video (Haiku code-gen + Lambda execution)
+  handles:        SECTION_CARD, CONCEPT_IMAGE, THUMBNAIL_SRC,
+                  CHART, DIAGRAM, SLIDE, GRAPHIC_OVERLAY,
+                  animated infographics, comparison tables,
+                  counters, timelines, overlays, Lottie animations
+  fallback:       simplified prompt retry → text card via FFmpeg
+  toolbox:        Oracle Domain 9 keeps package list current automatically
+  upgrade_path:   Oracle approves new packages → Zeus injects → TONY uses same day
 
 # Cost per video (estimates)
 # SkyReels segments:    ~12 min @ $1.60/hr spot  = $0.32
 # Wan2.2 b-roll:        ~10 min @ $0.40/hr spot  = $0.07
-# FLUX images:          fixed cost (always-on)    = $0.00 marginal
+# TONY Lambda:          Haiku code-gen + sandbox  = $0.01
 # Lambda workers:       ~$0.04
 # S3 + transfer:        ~$0.01
 # ElevenLabs:           ~$0.00 (free tier rotation)

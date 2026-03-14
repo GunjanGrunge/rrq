@@ -120,9 +120,10 @@ the full pipeline with zero human input. One button. Fully autonomous.
 | Rex agent | `skills/agents/rex/SKILL.md` |
 | Regum agent | `skills/agents/regum/SKILL.md` |
 | Qeon agent | `skills/agents/qeon/SKILL.md` |
+| Rex Memory Store (scoring model, dedup, niche profiles, RRQ state) | `lib/rex/memory-store.ts` inline — self-contained, no skill file needed |
+| RRQ Trigger Modes (cron, queue-low, manual) | `lib/rex/rrq-trigger.ts` inline — wires to EventBridge + Inngest |
 
 ---
-
 ## Full System Architecture
 
 ```
@@ -159,11 +160,13 @@ AWS EC2 — THREE GPU Instances
                       Launches per job, self-terminates when done
                       Handles: B_ROLL, atmospheric video beats
 
-  image-gen           g4dn.xlarge reserved — FLUX.2 [klein] 4B FP8 (T4, 16GB VRAM)
-                      ALWAYS ON — persistent FastAPI inference server on :8080
-                      1yr reserved ~$136/month. Apache 2.0, fully commercial.
-                      Handles: SECTION_CARD, CONCEPT_IMAGE, THUMBNAIL_SRC beats
-                      Max 3 retries per image. Vera QA inline after each attempt.
+  code-agent          Lambda — TONY (Haiku generates Remotion/Recharts/D3/Nivo code)
+                      Sandboxed JS execution via child_process.fork()
+                      Handles: SECTION_CARD, CONCEPT_IMAGE, CHART, DIAGRAM,
+                               SLIDE, GRAPHIC_OVERLAY, animated infographics,
+                               comparison tables, counters, timelines, overlays
+                      Oracle Domain 9 keeps TONY's package toolbox current
+                      Zero EC2 cost — Lambda only, no always-on instance
 
 AWS SUPPORT SERVICES
   S3                  All media assets + episodic agent memory
@@ -284,6 +287,10 @@ DynamoDB — Working Memory (real-time, milliseconds)
   evidence-log        Every ARIA decision with signal snapshot + outcome
   signal-cache        Rex harvested signals — 30min TTL
   topic-queue         Held topics awaiting re-evaluation
+  source_weights      Rex signal scoring — per source avg confidence × clip performance
+  topic_history       Rex dedup store — 72h cooldown TTL, prevents re-generating same topic
+  niche_profiles      Per channel: seed keywords, subreddit list, TikTok hashtags, embedding key
+  rrq_state           RRQ trigger mode, last run time, queue depth, source rotation index
   channel-settings    channelMode (OPEN/NICHE_LOCKED/MULTI_NICHE) + niche theme mappings
   geo-strategies      SNIPER analysis per topic — market plans + ad plans
   market-performance  Zeus weekly per-market campaign results
@@ -726,10 +733,8 @@ EC2_WAN2_AMI_ID=
 EC2_WAN2_INSTANCE_TYPE=g5.2xlarge
 WAN2_MODEL_PATH=s3://content-factory-assets/models/wan2.2/
 
-# FLUX.2 [klein] 4B (images — always on, reserved)
-EC2_FLUX_INSTANCE_ID=              # fixed instance ID — reserved, never terminates
-EC2_FLUX_SERVER_URL=               # internal URL of FastAPI server on :8080
-FLUX_MODEL_PATH=s3://content-factory-assets/models/flux-klein-4b/
+#tony coding agent
+TONY_LAMBDA_ARN=   # ARN of the code-agent Lambda
 
 # Shared EC2 config
 EC2_ROLE_ARN=
@@ -786,8 +791,16 @@ STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 
+# RRQ Trigger Modes
+RRQ_CRON_RULE=rate(6 hours)           # cron mode — configurable, default 6h
+RRQ_QUEUE_LOW_CHECK_RULE=rate(30 minutes)  # queue-low check interval
+RRQ_QUEUE_LOW_THRESHOLD=3             # fire scan when pending clips < this
+
 # EventBridge Rules
 REX_SCAN_RULE=rate(30 minutes)
+RRQ_CRON_RULE=rate(6 hours)
+RRQ_QUEUE_LOW_CHECK_RULE=rate(30 minutes)
+RRQ_QUEUE_LOW_THRESHOLD=3
 ORACLE_RUN_RULE=cron(0 9 ? * TUE,FRI *)
 THE_LINE_MORNING_RULE=cron(45 8 * * ? *)
 THE_LINE_EOD_RULE=cron(0 21 * * ? *)
@@ -807,18 +820,18 @@ ZEUS_ANALYTICS_RULE=rate(24 hours)
 ```
 SkyReels V2 (g5.12xlarge spot ~$1.60/hr × 12min)    ~$0.32
 Wan2.2      (g5.2xlarge spot  ~$0.40/hr × 10min)    ~$0.07
-FLUX.2 klein (g4dn.xlarge reserved — fixed)          ~$0.00  (marginal)
-Lambda workers (audio, visuals, av-sync, upload)     ~$0.04
-S3 + data transfer                                   ~$0.01
-ElevenLabs × 4 accounts                              ~$0.00  (free tier)
-AWS Bedrock (per video LLM calls)                    ~$0.08
+TONY Lambda (Haiku code-gen + sandbox execution)    ~$0.01
+Lambda workers (audio, visuals, av-sync, upload)    ~$0.04
+S3 + data transfer                                  ~$0.01
+ElevenLabs × 4 accounts                             ~$0.00  (free tier)
+AWS Bedrock (per video LLM calls)                   ~$0.08
 ────────────────────────────────────────────────────
 Per video                                            ~$0.52
 ```
 
 ### Monthly Fixed Costs (platform, regardless of video count)
 ```
-FLUX.2 [klein] g4dn.xlarge 1yr reserved             ~$136.00  (always-on image gen)
+FLUX.2 [klein] g4dn.xlarge 1yr reserved              ~$10.00  (always-on image gen)
 AWS Bedrock base (agent scheduled runs)              ~$8.00
 S3 storage + transfer baseline                       ~$2.00
 Inngest                                              ~$0.00  (free tier)
@@ -908,7 +921,7 @@ Phase 13 — Auth + Billing + Polish
 | Inngest over Step Functions | 50k free runs vs 4k, TypeScript-first, Vercel-native |
 | Bedrock Knowledge Base over Pinecone | Fully managed RAG, no external account, all AWS |
 | EC2 spot for SkyReels + Wan2.2 | Cheapest GPU option, self-terminates, full control |
-| EC2 reserved for FLUX | Always-hot image gen — cold start penalty worse than fixed cost |
+| TONY over FLUX for stills | Remotion/Recharts/D3 generates data-driven, on-brand artifacts. No EC2 cost, no AI image generation, Oracle keeps toolbox current automatically |
 | SkyReels V2 over SadTalker or D-ID | 33 expressions, cinematic quality, zero per-video API cost |
 | Wan2.2 over stock b-roll APIs | VBench 84.7%, generated not licensed, no attribution required |
 | FLUX.2 [klein] 4B over fal.ai API | Apache 2.0 commercial, self-hosted, ~$0 marginal past 5 users |

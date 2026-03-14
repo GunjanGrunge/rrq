@@ -329,6 +329,16 @@ export const ORACLE_DOMAINS = [
     // TONY gains the package in its next run after Zeus injects the context.
     injectionTarget: "TONY",   // Zeus knows to route this to TONY's system context
     urgency: "NEXT_CYCLE",     // Package discovery is never urgent
+
+    onDeprecatedPackageFound: `
+      1. Identify the replacement package (must meet inclusion criteria)
+      2. Write both old and new to oracle-knowledge-index:
+         { deprecated: "old-package", replacement: "new-package", reason: "why" }
+         Example: { deprecated: "react-simple-maps", replacement: "@vnedyalk0v/react19-simple-maps", reason: "React 19 incompatible" }
+      3. Zeus injection includes deprecation notice alongside new approvals
+         TONY's Haiku prompt receives: "DEPRECATED (do not import): [package] → use [replacement] instead"
+      4. Old package moves to DROPPED list in tony/SKILL.md as permanent record
+    `,
   },
 
 ] as const;
