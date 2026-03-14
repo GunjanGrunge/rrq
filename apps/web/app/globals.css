@@ -142,6 +142,20 @@ body {
   border-radius: 0 2px 2px 0;
 }
 
+/* Director Mode gate animations */
+@keyframes gateApproved {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  70%  { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.gate-approved-flash { animation: gateApproved 600ms ease-out 1; }
+
+@keyframes gatePending {
+  0%, 100% { border-color: rgba(245, 166, 35, 0.4); }
+  50%       { border-color: rgba(245, 166, 35, 0.9); }
+}
+.gate-pending-border { animation: gatePending 2s ease-in-out infinite; }
+
 /* GO RRQ button noise */
 .go-rrq-noise::after {
   content: "";
@@ -229,4 +243,82 @@ body {
 }
 #cursor.hovering {
   transform: scale(3);
+}
+
+/* ─── Landing page animations ──────────────────────────────── */
+
+/* RRQ loader — text fill sweep */
+@keyframes rrqFill {
+  0%   { clip-path: inset(0 100% 0 0); }
+  100% { clip-path: inset(0 0% 0 0); }
+}
+.rrq-fill-amber {
+  animation: rrqFill 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Loader fade out */
+@keyframes loaderExit {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.97); pointer-events: none; }
+}
+.loader-exit {
+  animation: loaderExit 0.5s ease-in forwards;
+}
+
+/* Scroll reveal — fade up */
+@keyframes revealUp {
+  0%   { opacity: 0; transform: translateY(32px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.reveal-up {
+  opacity: 0;
+  animation: revealUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Marquee scroll */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.marquee-track {
+  animation: marquee 28s linear infinite;
+  display: flex;
+  width: max-content;
+}
+
+/* Amber line draw */
+@keyframes lineDraw {
+  0%   { width: 0; }
+  100% { width: 100%; }
+}
+.line-draw {
+  animation: lineDraw 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Kinetic float */
+@keyframes floatY {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+.float-slow {
+  animation: floatY 6s ease-in-out infinite;
+}
+
+/* Amber glow pulse on cards */
+@keyframes amberGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 166, 35, 0); }
+  50%       { box-shadow: 0 0 24px 2px rgba(245, 166, 35, 0.08); }
+}
+.hover-glow:hover {
+  animation: amberGlow 1.5s ease-in-out infinite;
+}
+
+/* Number counter flicker */
+@keyframes numFlicker {
+  0%, 100% { opacity: 1; }
+  45%       { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+.stat-flicker {
+  animation: numFlicker 3s ease-in-out infinite;
 }

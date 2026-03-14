@@ -1,223 +1,628 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Show } from "@clerk/nextjs";
-import { ArrowRight, Zap, Wand2, Youtube, Clock } from "lucide-react";
+import { useAuth } from "@clerk/nextjs";
+import { ArrowRight } from "lucide-react";
 
-export default function LandingPage() {
+// ─── Full team roster ──────────────────────────────────────────────────────────
+const TEAM = [
+  {
+    id: "zeus",
+    name: "ZEUS",
+    role: "Head of Operations",
+    desc: "Leads the team. Holds the memory, tracks performance, reviews every video, and makes the final call. Always on.",
+    tier: "core",
+  },
+  {
+    id: "rex",
+    name: "REX",
+    role: "Intelligence & Scouting",
+    desc: "Watches the world continuously. Surfaces high-confidence opportunities before they peak — so you're always ahead of the curve.",
+    tier: "core",
+  },
+  {
+    id: "regum",
+    name: "REGUM",
+    role: "Strategy & Channel Management",
+    desc: "Turns opportunities into a sharp production angle, owns the content calendar, and keeps the channel growing with intention.",
+    tier: "core",
+  },
+  {
+    id: "qeon",
+    name: "QEON",
+    role: "Production Lead",
+    desc: "Runs production end-to-end — from first research pass to final upload. Every quality gate cleared before anything goes live.",
+    tier: "core",
+  },
+  {
+    id: "muse",
+    name: "MUSE",
+    role: "Script & Visual Architect",
+    desc: "Writes the script and designs the full visual plan. Every word and every frame has a purpose.",
+    tier: "specialist",
+  },
+  {
+    id: "oracle",
+    name: "ORACLE",
+    role: "Learning & Discovery",
+    desc: "Tracks what works, spots what's changing, and keeps the team sharp. The team gets smarter with every video.",
+    tier: "specialist",
+  },
+  {
+    id: "aria",
+    name: "ARIA",
+    role: "Market Intelligence",
+    desc: "Keeps your channel positioned correctly across markets. Reads signals, tracks outcomes, adjusts strategy — continuously.",
+    tier: "specialist",
+  },
+  {
+    id: "sniper",
+    name: "SNIPER",
+    role: "Geo-Linguistic Targeting",
+    desc: "Identifies the highest-value audience for every topic. Aligns content and ad strategy to the right market, every time.",
+    tier: "specialist",
+  },
+  {
+    id: "vera",
+    name: "VERA",
+    role: "Quality & Standards",
+    desc: "Reviews every video before it goes live — audio, visuals, and platform standards. Nothing ships unless it clears her gate.",
+    tier: "specialist",
+  },
+  {
+    id: "tony",
+    name: "TONY",
+    role: "Visuals & Data",
+    desc: "Builds the charts, infographics, section cards, and thumbnails that make your content stand out. Data made visual.",
+    tier: "specialist",
+  },
+  {
+    id: "theo",
+    name: "THEO",
+    role: "Channel Manager",
+    desc: "Handles comments, community engagement, title and thumbnail testing, and weekly performance reporting.",
+    tier: "specialist",
+  },
+  {
+    id: "jason",
+    name: "JASON",
+    role: "Team Coordinator",
+    desc: "Keeps everyone on track. Runs planning, monitors progress, and makes sure nothing falls through the cracks.",
+    tier: "specialist",
+  },
+];
+
+// ─── Council agents (review panel) ─────────────────────────────────────────────
+const COUNCIL = [
+  { id: "muse", name: "Muse" },
+  { id: "oracle", name: "Oracle" },
+  { id: "vera", name: "Vera" },
+  { id: "aria", name: "Aria" },
+  { id: "rex", name: "Rex" },
+  { id: "zeus", name: "Zeus" },
+];
+
+// ─── Stats ─────────────────────────────────────────────────────────────────────
+const STATS = [
+  { value: "12", label: "Team members" },
+  { value: "3", label: "Production modes" },
+  { value: "100%", label: "Done for you" },
+  { value: "24/7", label: "Always on" },
+];
+
+// ─── Marquee text ──────────────────────────────────────────────────────────────
+const MARQUEE_ITEMS = [
+  "Research", "Strategy", "Scripting", "Visuals", "Audio", "Editing",
+  "Thumbnails", "Publishing", "Analytics", "Growth", "Engagement", "Optimization",
+  "Research", "Strategy", "Scripting", "Visuals", "Audio", "Editing",
+  "Thumbnails", "Publishing", "Analytics", "Growth", "Engagement", "Optimization",
+];
+
+// ─── Scroll reveal hook ────────────────────────────────────────────────────────
+function useReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.15 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  return { ref, visible };
+}
+
+// ─── Reveal wrapper ────────────────────────────────────────────────────────────
+function Reveal({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
+  const { ref, visible } = useReveal();
   return (
-    <div className="min-h-screen bg-bg-base overflow-hidden">
-      {/* Dot grid background */}
-      <div className="fixed inset-0 dot-grid opacity-30 pointer-events-none" />
-
-      {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-8 py-6">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-accent-primary" />
-          <span className="font-syne font-bold text-text-primary tracking-[0.2em] uppercase text-sm">
-            RRQ
-          </span>
-        </div>
-
-        <div className="flex items-center gap-6">
-          <Show when="signed-out">
-            <Link
-              href="/sign-in"
-              className="font-dm-mono text-xs text-text-secondary hover:text-text-primary transition-colors duration-200 tracking-widest uppercase"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/sign-up"
-              className="font-dm-mono text-xs text-text-inverse bg-accent-primary hover:bg-accent-primary-hover px-4 py-2 tracking-widest uppercase transition-colors duration-200"
-            >
-              Get Started
-            </Link>
-          </Show>
-          <Show when="signed-in">
-            <Link
-              href="/create"
-              className="font-dm-mono text-xs text-text-inverse bg-accent-primary hover:bg-accent-primary-hover px-4 py-2 tracking-widest uppercase transition-colors duration-200"
-            >
-              Open Factory
-            </Link>
-          </Show>
-        </div>
-      </nav>
-
-      {/* Hero */}
-      <section className="relative z-10 flex flex-col items-center justify-center min-h-[85vh] px-8 text-center">
-        {/* Label */}
-        <div className="flex items-center gap-2 mb-8">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent-success animate-pulse" />
-          <span className="font-dm-mono text-xs text-text-secondary tracking-[0.3em] uppercase">
-            Autonomous Content System
-          </span>
-        </div>
-
-        {/* Headline */}
-        <h1 className="font-syne font-bold text-text-primary mb-6 leading-[0.9] tracking-tight"
-          style={{ fontSize: "clamp(48px, 8vw, 96px)" }}
-        >
-          <span className="block">Rex Regum</span>
-          <span className="block text-accent-primary">Qeon</span>
-        </h1>
-
-        {/* Subheadline */}
-        <p className="font-lora text-text-secondary text-xl max-w-xl mb-12 leading-relaxed">
-          Four AI agents that watch the world, identify opportunities, and
-          publish YouTube videos — completely autonomously.
-        </p>
-
-        {/* CTAs */}
-        <div className="flex flex-col sm:flex-row items-center gap-4">
-          <Show when="signed-out">
-            <Link
-              href="/sign-up"
-              className="flex items-center gap-2 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-syne font-bold text-sm px-8 py-4 tracking-widest uppercase transition-colors duration-200 group"
-            >
-              Start Building
-              <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform duration-200" />
-            </Link>
-            <Link
-              href="/sign-in"
-              className="font-dm-mono text-xs text-text-secondary hover:text-text-primary border border-bg-border hover:border-bg-border-hover px-8 py-4 tracking-widest uppercase transition-all duration-200"
-            >
-              Sign In
-            </Link>
-          </Show>
-          <Show when="signed-in">
-            <Link
-              href="/create"
-              className="flex items-center gap-2 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-syne font-bold text-sm px-8 py-4 tracking-widest uppercase transition-colors duration-200 group"
-            >
-              Open Factory
-              <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform duration-200" />
-            </Link>
-            <Link
-              href="/zeus"
-              className="flex items-center gap-2 border border-accent-primary text-accent-primary hover:bg-accent-primary hover:text-text-inverse font-syne font-bold text-sm px-8 py-4 tracking-widest uppercase transition-all duration-200"
-            >
-              <Zap size={16} />
-              GO RRQ
-            </Link>
-          </Show>
-        </div>
-
-        {/* Cost callout */}
-        <div className="mt-16 font-dm-mono text-xs text-text-tertiary tracking-widest">
-          ~$0.15 per video · 100 videos/month · $14.50 total
-        </div>
-      </section>
-
-      {/* Features row */}
-      <section className="relative z-10 border-t border-bg-border">
-        <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-bg-border">
-          {[
-            {
-              icon: <Wand2 size={20} className="text-accent-primary" />,
-              label: "11-Step Pipeline",
-              desc: "Research → Script → SEO → Audio → Avatar → Video → Upload",
-            },
-            {
-              icon: <Zap size={20} className="text-accent-primary" />,
-              label: "4 Autonomous Agents",
-              desc: "Zeus, Rex, Regum, Qeon — running 24/7 without human input",
-            },
-            {
-              icon: <Youtube size={20} className="text-accent-primary" />,
-              label: "YouTube Native",
-              desc: "Auto-uploads main video + Shorts, manages playlists and schedule",
-            },
-            {
-              icon: <Clock size={20} className="text-accent-primary" />,
-              label: "GO RRQ Mode",
-              desc: "One button. Zero input. Full autonomous content factory.",
-            },
-          ].map((feature) => (
-            <div key={feature.label} className="px-8 py-10 flex flex-col gap-4">
-              {feature.icon}
-              <div>
-                <div className="font-syne font-bold text-text-primary text-sm mb-2">
-                  {feature.label}
-                </div>
-                <div className="font-dm-mono text-xs text-text-secondary leading-relaxed">
-                  {feature.desc}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Agent list */}
-      <section className="relative z-10 px-8 py-24 max-w-4xl mx-auto">
-        <div className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase mb-12">
-          The Team
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          {[
-            {
-              name: "ZEUS",
-              role: "Head of Operations",
-              desc: "Never sleeps. Manages memory, scores agent performance, analyses every comment, monitors video health at 24h and 72h.",
-              model: "Opus",
-            },
-            {
-              name: "REX",
-              role: "Intelligence & Scouting",
-              desc: "Scans 6 signal sources every 30 minutes. Scores confidence across 7 dimensions. Flags opportunities before anyone else.",
-              model: "Opus",
-            },
-            {
-              name: "REGUM",
-              role: "Strategy & Channel Management",
-              desc: "Evaluates Rex's greenlights, picks the best angle, builds the production brief, manages playlists and upload schedule.",
-              model: "Sonnet",
-            },
-            {
-              name: "QEON",
-              role: "Production Execution",
-              desc: "Runs the full 11-step pipeline. Enforces the quality gate. Reports every step to Zeus. Never skips, never shortcuts.",
-              model: "Opus + Sonnet + Haiku",
-            },
-          ].map((agent) => (
-            <div
-              key={agent.name}
-              className="border border-bg-border bg-bg-surface p-6 hover:border-accent-primary transition-colors duration-300"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <div className="font-syne font-bold text-accent-primary text-lg tracking-widest">
-                    {agent.name}
-                  </div>
-                  <div className="font-dm-mono text-xs text-text-secondary tracking-wider mt-0.5">
-                    {agent.role}
-                  </div>
-                </div>
-                <div className="font-dm-mono text-[10px] text-text-tertiary border border-bg-border px-2 py-1 tracking-wider">
-                  {agent.model}
-                </div>
-              </div>
-              <p className="font-lora text-text-secondary text-sm leading-relaxed">
-                {agent.desc}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-bg-border px-8 py-8 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent-primary" />
-          <span className="font-syne font-bold text-text-primary text-xs tracking-[0.2em] uppercase">
-            RRQ Content Factory
-          </span>
-        </div>
-        <span className="font-dm-mono text-xs text-text-tertiary">
-          King of Kings
-        </span>
-      </footer>
+    <div
+      ref={ref}
+      className={className}
+      style={visible ? { animation: `revealUp 0.7s cubic-bezier(0.16,1,0.3,1) ${delay}ms forwards` } : { opacity: 0 }}
+    >
+      {children}
     </div>
+  );
+}
+
+// ─── Main ──────────────────────────────────────────────────────────────────────
+export default function LandingPage() {
+  const { isSignedIn } = useAuth();
+  const [loaderDone, setLoaderDone] = useState(false);
+  const [loaderExiting, setLoaderExiting] = useState(false);
+  const [fillStarted, setFillStarted] = useState(false);
+
+  // Loader sequence
+  useEffect(() => {
+    const t1 = setTimeout(() => setFillStarted(true), 300);
+    const t2 = setTimeout(() => setLoaderExiting(true), 1800);
+    const t3 = setTimeout(() => setLoaderDone(true), 2300);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, []);
+
+  return (
+    <>
+      {/* ─── Loader ────────────────────────────────────────────────────────── */}
+      {!loaderDone && (
+        <div
+          className={`fixed inset-0 z-[9999] bg-bg-base flex items-center justify-center ${loaderExiting ? "loader-exit" : ""}`}
+        >
+          <div className="relative select-none">
+            {/* Base text — outline / dark */}
+            <span
+              className="font-syne font-bold text-[120px] leading-none tracking-[-0.04em] text-bg-elevated"
+              style={{ WebkitTextStroke: "1px #222222" }}
+            >
+              RRQ
+            </span>
+            {/* Fill layer — amber sweep */}
+            <span
+              className="font-syne font-bold text-[120px] leading-none tracking-[-0.04em] text-accent-primary absolute inset-0"
+              style={{
+                clipPath: fillStarted ? undefined : "inset(0 100% 0 0)",
+                animation: fillStarted ? "rrqFill 1.2s cubic-bezier(0.16,1,0.3,1) forwards" : "none",
+                WebkitTextStroke: "none",
+              }}
+            >
+              RRQ
+            </span>
+            {/* Tagline */}
+            <p
+              className="font-dm-mono text-xs text-text-tertiary tracking-[0.4em] uppercase text-center mt-4"
+              style={{
+                opacity: fillStarted ? 1 : 0,
+                transition: "opacity 0.6s ease 0.8s",
+              }}
+            >
+              Rex Regum Qeon
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Page ──────────────────────────────────────────────────────────── */}
+      <div
+        className="min-h-screen bg-bg-base overflow-x-hidden"
+        style={{ opacity: loaderDone ? 1 : 0, transition: "opacity 0.4s ease" }}
+      >
+        {/* Dot grid */}
+        <div className="fixed inset-0 dot-grid opacity-20 pointer-events-none" />
+
+        {/* ─── Nav ─────────────────────────────────────────────────────────── */}
+        <nav className="relative z-20 flex items-center justify-between px-8 py-6 border-b border-bg-border/40">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 bg-accent-primary" />
+            <span className="font-syne font-bold text-text-primary tracking-[0.25em] uppercase text-sm">
+              RRQ
+            </span>
+          </div>
+          <div className="flex items-center gap-6">
+            {isSignedIn ? (
+              <>
+                <Link
+                  href="/create"
+                  className="font-dm-mono text-xs text-text-secondary hover:text-text-primary transition-colors tracking-widest uppercase"
+                >
+                  Studio
+                </Link>
+                <Link
+                  href="/zeus"
+                  className="font-dm-mono text-xs text-text-inverse bg-accent-primary hover:bg-accent-primary-hover px-5 py-2 tracking-widest uppercase transition-colors"
+                >
+                  GO RRQ
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/sign-in"
+                  className="font-dm-mono text-xs text-text-secondary hover:text-text-primary transition-colors tracking-widest uppercase"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/sign-up"
+                  className="font-dm-mono text-xs text-text-inverse bg-accent-primary hover:bg-accent-primary-hover px-5 py-2 tracking-widest uppercase transition-colors"
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
+          </div>
+        </nav>
+
+        {/* ─── Hero ────────────────────────────────────────────────────────── */}
+        <section className="relative z-10 flex flex-col items-center justify-center min-h-[92vh] px-8 text-center">
+          {/* Ambient glow behind headline */}
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full pointer-events-none"
+            style={{
+              background: "radial-gradient(circle, rgba(245,166,35,0.06) 0%, transparent 70%)",
+            }}
+          />
+
+          {/* Status pill */}
+          <div
+            className="flex items-center gap-2 mb-10 border border-bg-border px-4 py-2"
+            style={{ animation: "revealUp 0.6s cubic-bezier(0.16,1,0.3,1) 2.4s both" }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-accent-success animate-pulse" />
+            <span className="font-dm-mono text-[10px] text-text-secondary tracking-[0.35em] uppercase">
+              Your AI Content Team — Always On
+            </span>
+          </div>
+
+          {/* Headline */}
+          <h1
+            className="font-syne font-bold text-text-primary tracking-tight mb-6"
+            style={{
+              fontSize: "clamp(48px, 7.5vw, 100px)",
+              lineHeight: 1.2,
+              animation: "revealUp 0.7s cubic-bezier(0.16,1,0.3,1) 2.5s both",
+            }}
+          >
+            <span className="block">Rex Regum</span>
+            <span className="block text-accent-primary">Qeon.</span>
+          </h1>
+
+          {/* Subline */}
+          <p
+            className="font-lora text-text-secondary text-xl max-w-lg mb-12 leading-relaxed"
+            style={{ animation: "revealUp 0.7s cubic-bezier(0.16,1,0.3,1) 2.65s both" }}
+          >
+            A team of 12 AI agents that research, write, produce, and
+            publish your channel — while you focus on what matters.
+          </p>
+
+          {/* CTAs */}
+          <div
+            className="flex flex-col sm:flex-row items-center gap-4"
+            style={{ animation: "revealUp 0.7s cubic-bezier(0.16,1,0.3,1) 2.8s both" }}
+          >
+            {isSignedIn ? (
+              <>
+                <Link
+                  href="/create"
+                  className="flex items-center gap-2 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-syne font-bold text-sm px-10 py-4 tracking-widest uppercase transition-colors group"
+                >
+                  Open Studio
+                  <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+                <Link
+                  href="/zeus"
+                  className="font-dm-mono text-xs text-text-secondary hover:text-text-primary border border-bg-border hover:border-bg-border-hover px-10 py-4 tracking-widest uppercase transition-all"
+                >
+                  Command Center
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/sign-up"
+                  className="flex items-center gap-2 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-syne font-bold text-sm px-10 py-4 tracking-widest uppercase transition-colors group"
+                >
+                  Start Building
+                  <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+                <Link
+                  href="/sign-in"
+                  className="font-dm-mono text-xs text-text-secondary hover:text-text-primary border border-bg-border hover:border-bg-border-hover px-10 py-4 tracking-widest uppercase transition-all"
+                >
+                  Sign In
+                </Link>
+              </>
+            )}
+          </div>
+
+          {/* Scroll cue */}
+          <div
+            className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
+            style={{ animation: "revealUp 0.6s ease 3.2s both" }}
+          >
+            <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.4em] uppercase">Scroll</span>
+            <div className="w-px h-10 bg-gradient-to-b from-bg-border to-transparent" />
+          </div>
+        </section>
+
+        {/* ─── Stats bar ───────────────────────────────────────────────────── */}
+        <Reveal>
+          <div className="relative z-10 border-t border-b border-bg-border grid grid-cols-2 md:grid-cols-4 divide-x divide-bg-border">
+            {STATS.map((s) => (
+              <div key={s.label} className="px-8 py-10 text-center">
+                <div className="font-syne font-bold text-accent-primary stat-flicker" style={{ fontSize: "clamp(32px, 4vw, 48px)" }}>
+                  {s.value}
+                </div>
+                <div className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase mt-2">
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Reveal>
+
+        {/* ─── Pipeline marquee ─────────────────────────────────────────────── */}
+        <Reveal>
+          <div className="relative z-10 border-b border-bg-border py-5 overflow-hidden">
+            <div className="marquee-track">
+              {MARQUEE_ITEMS.map((item, i) => (
+                <span key={i} className="flex items-center gap-6 px-6 font-dm-mono text-[10px] tracking-[0.3em] uppercase text-text-tertiary whitespace-nowrap">
+                  {item}
+                  <span className="text-accent-primary opacity-40">◆</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* ─── Modes section ────────────────────────────────────────────────── */}
+        <section className="relative z-10 px-8 py-28 max-w-6xl mx-auto">
+          <Reveal>
+            <div className="mb-16 flex flex-col gap-3">
+              <span className="font-dm-mono text-[10px] text-accent-primary tracking-[0.4em] uppercase">
+                How you work with us
+              </span>
+              <h2 className="font-syne font-bold text-text-primary" style={{ fontSize: "clamp(28px, 4vw, 48px)", lineHeight: 1.2 }}>
+                Three ways to run<br />your channel.
+              </h2>
+            </div>
+          </Reveal>
+
+          <div className="grid md:grid-cols-3 gap-px bg-bg-border">
+            {[
+              {
+                badge: "01",
+                name: "Studio Mode",
+                tagline: "You lead. We execute.",
+                desc: "Enter a topic. The team produces and uploads a complete YouTube video — research, script, visuals, audio, editing, and all. You stay in the driver's seat.",
+                accent: false,
+              },
+              {
+                badge: "02",
+                name: "Director Mode",
+                tagline: "You approve. We produce.",
+                desc: "The team does the work, you make the creative calls. Review the script, visuals, and final cut at every key moment. Edit, approve, or ask for a redo.",
+                accent: true,
+              },
+              {
+                badge: "03",
+                name: "Autopilot",
+                tagline: "One button. Zero input.",
+                desc: "The team watches the world around the clock. When the right opportunity shows up, they move — and you get notified when the video is live.",
+                accent: false,
+              },
+            ].map((mode) => (
+              <div
+                key={mode.name}
+                className={`p-8 bg-bg-base hover-glow transition-all duration-300 group ${mode.accent ? "border-t-2 border-accent-primary" : ""}`}
+              >
+                <Reveal delay={mode.accent ? 100 : 0}>
+                  <div className="font-dm-mono text-[10px] text-text-tertiary tracking-[0.4em] mb-6">{mode.badge}</div>
+                  <h3 className={`font-syne font-bold text-lg mb-1 ${mode.accent ? "text-accent-primary" : "text-text-primary"}`}>
+                    {mode.name}
+                  </h3>
+                  <div className="font-dm-mono text-[10px] text-text-tertiary tracking-wider uppercase mb-5">{mode.tagline}</div>
+                  <p className="font-lora text-text-secondary text-sm leading-relaxed">{mode.desc}</p>
+                </Reveal>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ─── Team — full org chart ─────────────────────────────────────────── */}
+        <section className="relative z-10 py-28 border-t border-bg-border">
+          <div className="px-8 max-w-6xl mx-auto">
+
+            {/* Section header */}
+            <Reveal>
+              <div className="mb-16 flex flex-col gap-3">
+                <span className="font-dm-mono text-[10px] text-accent-primary tracking-[0.4em] uppercase">
+                  The team
+                </span>
+                <h2 className="font-syne font-bold text-text-primary" style={{ fontSize: "clamp(28px, 4vw, 48px)", lineHeight: 1.2 }}>
+                  12 specialists.<br />One shared goal.
+                </h2>
+              </div>
+            </Reveal>
+
+            {/* ── Core tier label ── */}
+            <Reveal>
+              <div className="flex items-center gap-4 mb-px py-3 border-t border-bg-border">
+                <span className="font-dm-mono text-[9px] text-accent-primary tracking-[0.4em] uppercase shrink-0">
+                  Core
+                </span>
+                <div className="flex-1 h-px bg-bg-border" />
+                <span className="font-dm-mono text-[9px] text-text-tertiary tracking-widest">
+                  Ops · Intelligence · Strategy · Production
+                </span>
+              </div>
+            </Reveal>
+
+            {/* Core four — larger cards with amber left accent */}
+            <div className="grid md:grid-cols-4 gap-px bg-bg-border mb-8">
+              {TEAM.filter((a) => a.tier === "core").map((agent, i) => (
+                <Reveal key={agent.id} delay={i * 80}>
+                  <div className="bg-bg-base p-7 border-l-2 border-accent-primary hover:bg-bg-elevated transition-all duration-200 group h-full">
+                    <div className="flex items-start justify-between mb-5">
+                      <div>
+                        <div className="font-syne font-bold text-accent-primary text-xl tracking-widest mb-1">
+                          {agent.name}
+                        </div>
+                        <div className="font-dm-mono text-[9px] text-text-tertiary tracking-wider uppercase">
+                          {agent.role}
+                        </div>
+                      </div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-accent-success mt-1.5 animate-pulse shrink-0" />
+                    </div>
+                    <p className="font-lora text-text-secondary text-sm leading-relaxed">{agent.desc}</p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+
+            {/* ── Specialists tier label ── */}
+            <Reveal>
+              <div className="flex items-center gap-4 mb-px py-3 border-t border-bg-border">
+                <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.4em] uppercase shrink-0">
+                  Specialists
+                </span>
+                <div className="flex-1 h-px bg-bg-border" />
+                <span className="font-dm-mono text-[9px] text-text-tertiary tracking-widest">
+                  Script · Learning · Market · Quality · Visuals · Channel · Coordination
+                </span>
+              </div>
+            </Reveal>
+
+            {/* Specialists — two rows of 4 */}
+            <div className="grid md:grid-cols-4 gap-px bg-bg-border mb-px">
+              {TEAM.filter((a) => a.tier === "specialist").slice(0, 4).map((agent, i) => (
+                <Reveal key={agent.id} delay={i * 60}>
+                  <div className="bg-bg-surface p-6 border-l border-bg-border hover:border-l-accent-primary/40 hover:bg-bg-elevated transition-all duration-200 group h-full">
+                    <div className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase mb-3">
+                      {agent.role}
+                    </div>
+                    <div className="font-syne font-bold text-text-primary text-base tracking-widest mb-3 group-hover:text-accent-primary transition-colors">
+                      {agent.name}
+                    </div>
+                    <p className="font-lora text-text-tertiary text-xs leading-relaxed group-hover:text-text-secondary transition-colors">
+                      {agent.desc}
+                    </p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+            <div className="grid md:grid-cols-4 gap-px bg-bg-border">
+              {TEAM.filter((a) => a.tier === "specialist").slice(4).map((agent, i) => (
+                <Reveal key={agent.id} delay={i * 60}>
+                  <div className="bg-bg-surface p-6 border-l border-bg-border hover:border-l-accent-primary/40 hover:bg-bg-elevated transition-all duration-200 group h-full">
+                    <div className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase mb-3">
+                      {agent.role}
+                    </div>
+                    <div className="font-syne font-bold text-text-primary text-base tracking-widest mb-3 group-hover:text-accent-primary transition-colors">
+                      {agent.name}
+                    </div>
+                    <p className="font-lora text-text-tertiary text-xs leading-relaxed group-hover:text-text-secondary transition-colors">
+                      {agent.desc}
+                    </p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Council strip ────────────────────────────────────────────────── */}
+        <Reveal>
+          <div className="relative z-10 border-t border-b border-bg-border px-8 py-10 max-w-6xl mx-auto">
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-8">
+              <div className="shrink-0">
+                <div className="font-dm-mono text-[10px] text-accent-primary tracking-[0.4em] uppercase mb-1">
+                  Built-in quality
+                </div>
+                <div className="font-syne font-bold text-text-primary text-lg">
+                  Every video reviewed before it goes live.
+                </div>
+              </div>
+              <div className="flex-1 flex items-center gap-3 flex-wrap">
+                {COUNCIL.map((agent, i) => (
+                  <div key={agent.id} className="flex items-center gap-3">
+                    <div className="font-dm-mono text-[10px] text-text-secondary tracking-wider border border-bg-border px-3 py-1.5">
+                      {agent.name}
+                    </div>
+                    {i < COUNCIL.length - 1 && (
+                      <div className="w-4 h-px bg-bg-border" />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="shrink-0 font-lora text-text-tertiary text-xs max-w-[220px] leading-relaxed hidden md:block">
+                The whole team signs off before anything reaches your audience.
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* ─── CTA section ──────────────────────────────────────────────────── */}
+        <section className="relative z-10 flex flex-col items-center justify-center py-36 px-8 text-center">
+          {/* Ambient glow */}
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] pointer-events-none"
+            style={{ background: "radial-gradient(ellipse, rgba(245,166,35,0.07) 0%, transparent 70%)" }}
+          />
+          <Reveal>
+            <div className="font-dm-mono text-[10px] text-text-tertiary tracking-[0.4em] uppercase mb-8">
+              Ready when you are
+            </div>
+            <h2
+              className="font-syne font-bold text-text-primary mb-8"
+              style={{ fontSize: "clamp(36px, 6vw, 80px)", lineHeight: 1.2 }}
+            >
+              Your channel.<br />
+              <span className="text-accent-primary">Their expertise.</span>
+            </h2>
+            <p className="font-lora text-text-secondary text-lg max-w-md mb-12 leading-relaxed mx-auto">
+              Start with one video. Scale to a channel. The team handles
+              the rest — every step, every time.
+            </p>
+            {isSignedIn ? (
+              <Link
+                href="/create"
+                className="inline-flex items-center gap-3 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-syne font-bold text-sm px-12 py-5 tracking-widest uppercase transition-colors group"
+              >
+                Open Studio
+                <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+              </Link>
+            ) : (
+              <Link
+                href="/sign-up"
+                className="inline-flex items-center gap-3 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-syne font-bold text-sm px-12 py-5 tracking-widest uppercase transition-colors group"
+              >
+                Get Started Free
+                <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+              </Link>
+            )}
+          </Reveal>
+        </section>
+
+        {/* ─── Footer ──────────────────────────────────────────────────────── */}
+        <footer className="relative z-10 border-t border-bg-border px-8 py-8 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 bg-accent-primary" />
+            <span className="font-syne font-bold text-text-primary text-xs tracking-[0.25em] uppercase">
+              RRQ
+            </span>
+          </div>
+          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+            Rex Regum Qeon · King of Kings
+          </span>
+        </footer>
+      </div>
+    </>
   );
 }

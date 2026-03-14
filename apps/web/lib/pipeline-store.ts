@@ -5,6 +5,16 @@ export type StepStatus = "ready" | "running" | "complete" | "error";
 
 export type Tone = "informative" | "entertaining" | "documentary" | "controversial" | "persuasive";
 
+export type GateId = "gate-script" | "gate-seo" | "gate-visuals" | "gate-publish";
+export type GateStatus = "idle" | "pending" | "approved" | "editing" | "regenerating";
+
+export interface ApprovalGateState {
+  status: GateStatus;
+  arrivedAt: number | null;
+  approvedAt: number | null;
+  edits: Record<string, unknown>;
+}
+
 export interface ChatMessage {
   role: "zeus" | "user";
   content: string;
@@ -26,7 +36,22 @@ export interface BriefData {
   shortsType: "convert" | "fresh";
   qualityThreshold: number;
   chatMessages: ChatMessage[];
+  directorMode: boolean;
 }
+
+const INITIAL_GATE: ApprovalGateState = {
+  status: "idle",
+  arrivedAt: null,
+  approvedAt: null,
+  edits: {},
+};
+
+const INITIAL_GATES: Record<GateId, ApprovalGateState> = {
+  "gate-script": { ...INITIAL_GATE },
+  "gate-seo": { ...INITIAL_GATE },
+  "gate-visuals": { ...INITIAL_GATE },
+  "gate-publish": { ...INITIAL_GATE },
+};
 
 interface PipelineState {
   // Current job
@@ -40,6 +65,10 @@ interface PipelineState {
   // Step outputs (typed loosely — will be refined per step)
   outputs: Record<number, unknown>;
 
+  // Director Mode gates
+  approvalGates: Record<GateId, ApprovalGateState>;
+  pendingGate: GateId | null;
+
   // Actions
   startJob: (jobId: string) => void;
   setBrief: (brief: BriefData) => void;
@@ -47,6 +76,13 @@ interface PipelineState {
   setStepStatus: (step: number, status: StepStatus) => void;
   setStepOutput: (step: number, output: unknown) => void;
   resetPipeline: () => void;
+
+  // Director Mode gate actions
+  openGate: (gateId: GateId) => void;
+  approveGate: (gateId: GateId, edits?: Record<string, unknown>) => void;
+  setGateStatus: (gateId: GateId, status: GateStatus) => void;
+  resetGates: () => void;
+  enableDirectorMode: () => void;
 }
 
 const INITIAL_STEP_STATUSES: Record<number, StepStatus> = Object.fromEntries(
@@ -61,6 +97,8 @@ export const usePipelineStore = create<PipelineState>()(
       stepStatuses: { ...INITIAL_STEP_STATUSES },
       brief: null,
       outputs: {},
+      approvalGates: { ...INITIAL_GATES },
+      pendingGate: null,
 
       startJob: (jobId) =>
         set({
@@ -91,7 +129,68 @@ export const usePipelineStore = create<PipelineState>()(
           stepStatuses: { ...INITIAL_STEP_STATUSES },
           brief: null,
           outputs: {},
+          approvalGates: {
+            "gate-script": { ...INITIAL_GATE },
+            "gate-seo": { ...INITIAL_GATE },
+            "gate-visuals": { ...INITIAL_GATE },
+            "gate-publish": { ...INITIAL_GATE },
+          },
+          pendingGate: null,
         }),
+
+      openGate: (gateId) =>
+        set((state) => ({
+          pendingGate: gateId,
+          approvalGates: {
+            ...state.approvalGates,
+            [gateId]: {
+              ...state.approvalGates[gateId],
+              status: "pending",
+              arrivedAt: Date.now(),
+            },
+          },
+        })),
+
+      approveGate: (gateId, edits = {}) =>
+        set((state) => ({
+          pendingGate: null,
+          approvalGates: {
+            ...state.approvalGates,
+            [gateId]: {
+              ...state.approvalGates[gateId],
+              status: "approved",
+              approvedAt: Date.now(),
+              edits,
+            },
+          },
+        })),
+
+      setGateStatus: (gateId, status) =>
+        set((state) => ({
+          approvalGates: {
+            ...state.approvalGates,
+            [gateId]: {
+              ...state.approvalGates[gateId],
+              status,
+            },
+          },
+        })),
+
+      resetGates: () =>
+        set({
+          approvalGates: {
+            "gate-script": { ...INITIAL_GATE },
+            "gate-seo": { ...INITIAL_GATE },
+            "gate-visuals": { ...INITIAL_GATE },
+            "gate-publish": { ...INITIAL_GATE },
+          },
+          pendingGate: null,
+        }),
+
+      enableDirectorMode: () =>
+        set((state) => ({
+          brief: state.brief ? { ...state.brief, directorMode: true } : null,
+        })),
     }),
     {
       name: "rrq-pipeline",
@@ -100,6 +199,8 @@ export const usePipelineStore = create<PipelineState>()(
         currentStep: state.currentStep,
         stepStatuses: state.stepStatuses,
         brief: state.brief,
+        approvalGates: state.approvalGates,
+        pendingGate: state.pendingGate,
       }),
     }
   )

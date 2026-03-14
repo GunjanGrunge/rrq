@@ -2,11 +2,21 @@
 
 import { useEffect } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
+import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 
 export default function VisualsPage() {
-  const { setStep } = usePipelineStore();
+  const { setStep, stepStatuses } = usePipelineStore();
+  const { proceedAfterVisuals } = useDirectorNavigation();
+
   useEffect(() => { setStep(9); }, [setStep]);
+
+  useEffect(() => {
+    if (stepStatuses[9] === "complete") {
+      proceedAfterVisuals();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepStatuses[9]]);
 
   return (
     <PipelineStepWaiting

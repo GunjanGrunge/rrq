@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
+import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -13,6 +14,7 @@ import MetadataChip from "@/components/ui/MetadataChip";
 export default function SEOPage() {
   const { brief, setStep, setStepStatus, setStepOutput, outputs } =
     usePipelineStore();
+  const { proceedAfterSEO, isDirectorMode } = useDirectorNavigation();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
   const scriptOutput = outputs[2] as ScriptOutput | undefined;
   const [seo, setSeo] = useState<SEOOutput | null>(
@@ -317,12 +319,12 @@ export default function SEOPage() {
         <div className="mt-8 flex justify-end">
           <button
             onClick={() => {
-              setStep(4);
-              window.location.href = "/create/quality";
+              setStep(isDirectorMode ? 3 : 4);
+              proceedAfterSEO();
             }}
             className="px-6 py-2.5 bg-accent-primary text-bg-base font-syne font-bold text-sm tracking-wider rounded-md hover:bg-accent-hover transition-colors"
           >
-            RUN QUALITY GATE →
+            {isDirectorMode ? "REVIEW METADATA →" : "RUN QUALITY GATE →"}
           </button>
         </div>
       )}

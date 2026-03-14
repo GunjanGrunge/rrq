@@ -11,28 +11,23 @@ export default function ShortsPage() {
   return (
     <PipelineStepWaiting
       stepNumber={12}
-      title="Shorts Generation"
-      description="Two paths: Option A converts the best 45–60s clip from the main video using FFmpeg (fast, zero extra cost). Option B generates a fresh vertical Short via Haiku script + Edge-TTS when the main video doesn't have a strong standalone clip. Shorts are published 2–3 hours before the main video."
+      title="Creating Your Short"
+      description="Your video is being adapted into a vertical Short. If there's a strong standalone moment in the main video, it's extracted and reformatted. If not, a fresh Short is written and produced specifically for the vertical format. Shorts go live 2–3 hours before the main video to build early momentum."
       icon={
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="6" y="2" width="12" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" />
         </svg>
       }
-      infraTags={[
-        { label: "shorts-gen Lambda — FFmpeg convert (Option A)", phase: "Phase 3", status: "ready" },
-        { label: "Haiku script + Edge-TTS (Option B — fresh Short)", phase: "Phase 3", status: "ready" },
-        { label: "9:16 vertical crop, 45–60 second max", phase: "Phase 3", status: "ready" },
-      ]}
       subTasks={[
-        { label: "Evaluate main video for a strong standalone 45–60s clip", done: false },
-        { label: "Option A: FFmpeg crop + reformat to 9:16 vertical", done: false },
-        { label: "Option B: Haiku generates Short script, Edge-TTS records audio", done: false },
-        { label: "Upload final_short.mp4 to S3 jobs/{jobId}/", done: false },
-        { label: "Schedule Short upload 2–3 hours before main video", done: false },
+        { label: "Review the main video for a strong 45–60 second standalone clip", done: false },
+        { label: "Extract and reformat the best clip to vertical 9:16", done: false },
+        { label: "If no strong clip found — write and produce a fresh Short instead", done: false },
+        { label: "Package the Short for upload", done: false },
+        { label: "Schedule Short to publish 2–3 hours ahead of the main video", done: false },
       ]}
       estimatedTime="~2 minutes"
       prerequisiteStep={11}
-      prerequisiteLabel="Vera QA (Step 11)"
+      prerequisiteLabel="Quality Check (Step 11)"
     />
   );
 }

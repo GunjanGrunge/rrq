@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
+import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -40,6 +41,7 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 export default function ScriptPage() {
   const { brief, setStep, setStepStatus, setStepOutput, outputs } =
     usePipelineStore();
+  const { proceedAfterScript, isDirectorMode } = useDirectorNavigation();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
   const [script, setScript] = useState<ScriptOutput | null>(
     (outputs[2] as ScriptOutput) ?? null
@@ -328,12 +330,12 @@ export default function ScriptPage() {
         <div className="px-6 py-4 border-t border-bg-border flex justify-end">
           <button
             onClick={() => {
-              setStep(3);
-              window.location.href = "/create/seo";
+              setStep(isDirectorMode ? 2 : 3);
+              proceedAfterScript();
             }}
             className="px-6 py-2.5 bg-accent-primary text-bg-base font-syne font-bold text-sm tracking-wider rounded-md hover:bg-accent-hover transition-colors"
           >
-            PROCEED TO SEO →
+            {isDirectorMode ? "REVIEW SCRIPT →" : "PROCEED TO SEO →"}
           </button>
         </div>
       )}

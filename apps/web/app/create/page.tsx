@@ -80,6 +80,7 @@ export default function CreatePage() {
   const [generateShorts, setGenerateShorts] = useState(false);
   const [shortsType, setShortsType] = useState<"convert" | "fresh">("convert");
   const [qualityThreshold] = useState(7);
+  const [directorMode, setDirectorMode] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
   // Chat state
@@ -161,6 +162,7 @@ export default function CreatePage() {
       shortsType,
       qualityThreshold,
       chatMessages,
+      directorMode,
     });
     startJob(jobId);
     setStep(2);
@@ -184,6 +186,55 @@ export default function CreatePage() {
           <h1 className="font-syne font-bold text-5xl text-text-primary leading-tight">
             Let&apos;s build your video.
           </h1>
+        </div>
+
+        {/* Production Mode selector */}
+        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
+          <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase block mb-4">
+            Production Mode
+          </span>
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              {
+                value: false,
+                label: "Studio Mode",
+                desc: "AI runs the full pipeline. Your video is produced and published automatically.",
+              },
+              {
+                value: true,
+                label: "Director Mode",
+                desc: "AI produces, you approve 4 key creative decisions before publishing.",
+              },
+            ].map((opt) => (
+              <button
+                key={String(opt.value)}
+                onClick={() => setDirectorMode(opt.value)}
+                className={`
+                  flex items-center justify-between px-4 py-3 border text-left transition-all duration-150
+                  ${directorMode === opt.value
+                    ? "border-accent-primary bg-accent-primary/5"
+                    : "border-bg-border hover:border-bg-border-hover"
+                  }
+                `}
+              >
+                <div>
+                  <span className={`font-dm-mono text-xs tracking-wider ${
+                    directorMode === opt.value ? "text-accent-primary" : "text-text-primary"
+                  }`}>
+                    {opt.label}
+                  </span>
+                  <span className="font-lora text-xs text-text-tertiary ml-3">{opt.desc}</span>
+                </div>
+                {directorMode === opt.value && (
+                  <div className="w-4 h-4 rounded-sm border border-accent-primary bg-accent-primary flex items-center justify-center shrink-0">
+                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                      <path d="M1 3.5L3 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Zeus Chat */}

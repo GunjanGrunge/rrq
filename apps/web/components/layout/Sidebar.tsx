@@ -6,8 +6,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useUIStore } from "@/lib/ui-store";
-import { Zap, ChevronRight, X } from "lucide-react";
+import { Zap, ChevronRight, X, Inbox } from "lucide-react";
 import StatusPill from "@/components/ui/StatusPill";
+import type { GateId, GateStatus } from "@/lib/pipeline-store";
 
 const PIPELINE_STEPS = [
   { number: 0, label: "Creative Brief", slug: "" },
@@ -20,24 +21,89 @@ const PIPELINE_STEPS = [
   { number: 7, label: "B-Roll", slug: "broll" },
   { number: 8, label: "Images", slug: "images" },
   { number: 9, label: "Visuals", slug: "visuals" },
-  { number: 10, label: "AV Sync", slug: "av-sync" },
-  { number: 11, label: "Vera QA", slug: "vera-qa" },
+  { number: 10, label: "Video Assembly", slug: "av-sync" },
+  { number: 11, label: "Quality Check", slug: "vera-qa" },
   { number: 12, label: "Shorts", slug: "shorts" },
   { number: 13, label: "Upload", slug: "upload" },
 ];
 
+interface GateEntry {
+  type: "gate";
+  gateId: GateId;
+  label: string;
+  slug: string;
+  afterStep: number;
+  status: GateStatus;
+}
+
+interface StepEntry {
+  type: "step";
+  number: number;
+  label: string;
+  slug: string;
+}
+
+type SidebarEntry = StepEntry | GateEntry;
+
+function injectGates(
+  steps: typeof PIPELINE_STEPS,
+  approvalGates: Record<GateId, { status: GateStatus }>,
+  directorMode: boolean
+): SidebarEntry[] {
+  if (!directorMode) {
+    return steps.map((s) => ({ type: "step" as const, ...s }));
+  }
+
+  const gates: Array<{ afterStep: number; gateId: GateId; label: string; slug: string }> = [
+    { afterStep: 2, gateId: "gate-script", label: "Your Approval", slug: "approve-script" },
+    { afterStep: 3, gateId: "gate-seo", label: "Your Approval", slug: "approve-seo" },
+    { afterStep: 9, gateId: "gate-visuals", label: "Your Approval", slug: "approve-visuals" },
+    { afterStep: 11, gateId: "gate-publish", label: "Your Approval", slug: "approve-publish" },
+  ];
+
+  const result: SidebarEntry[] = [];
+  for (const step of steps) {
+    result.push({ type: "step", ...step });
+    const gate = gates.find((g) => g.afterStep === step.number);
+    if (gate) {
+      result.push({
+        type: "gate",
+        gateId: gate.gateId,
+        label: gate.label,
+        slug: gate.slug,
+        afterStep: gate.afterStep,
+        status: approvalGates[gate.gateId].status,
+      });
+    }
+  }
+  return result;
+}
+
 export default function Sidebar() {
   const { user, isLoaded } = useUser();
   const pathname = usePathname();
-  const { currentStep, stepStatuses } = usePipelineStore();
+  const { currentStep, stepStatuses, brief, approvalGates, pendingGate } = usePipelineStore();
   const { sidebarOpen, closeSidebar } = useUIStore();
 
   const plan = (user?.publicMetadata?.plan as string) ?? "free";
+  const directorMode = brief?.directorMode ?? false;
+
+  const entries = injectGates(PIPELINE_STEPS, approvalGates, directorMode);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
     closeSidebar();
   }, [pathname, closeSidebar]);
+
+  function GateDiamond({ status }: { status: GateStatus }) {
+    if (status === "approved") {
+      return <span className="text-[10px] text-accent-success">◆</span>;
+    }
+    if (status === "pending") {
+      return <span className="text-[10px] text-accent-primary animate-pulse">◆</span>;
+    }
+    return <span className="text-[10px] text-text-tertiary">◇</span>;
+  }
 
   const sidebarContent = (
     <aside className="w-60 bg-bg-surface border-r border-bg-border flex flex-col h-full overflow-y-auto">
@@ -79,6 +145,27 @@ export default function Sidebar() {
         </Link>
       </div>
 
+      {/* Inbox link */}
+      <div className="px-3 py-2 border-b border-bg-border">
+        <Link
+          href="/inbox"
+          className={`
+            flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-all duration-200
+            ${pathname === "/inbox"
+              ? "bg-accent-primary text-text-inverse"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
+            }
+          `}
+        >
+          <div className="flex items-center gap-2">
+            <Inbox size={14} />
+            <span className="font-syne font-bold text-xs tracking-wider uppercase">
+              Inbox
+            </span>
+          </div>
+        </Link>
+      </div>
+
       {/* Pipeline steps */}
       <div className="flex-1 py-2">
         <div className="px-4 py-2">
@@ -87,14 +174,46 @@ export default function Sidebar() {
           </span>
         </div>
 
-        {PIPELINE_STEPS.map((step) => {
-          const status = stepStatuses[step.number] ?? "ready";
-          const isActive = currentStep === step.number;
+        {entries.map((entry) => {
+          if (entry.type === "gate") {
+            const isPending = entry.status === "pending";
+            const isApproved = entry.status === "approved";
+            const isActive = pendingGate === entry.gateId;
+
+            return (
+              <Link
+                key={`gate-${entry.gateId}`}
+                href={`/create/${entry.slug}`}
+                className={`
+                  flex items-center justify-between px-4 py-2.5 transition-all duration-200 group
+                  relative border-l-2 ml-0
+                  ${isActive
+                    ? "step-active-border bg-bg-elevated text-text-primary border-l-accent-primary"
+                    : isPending
+                    ? "gate-pending-border bg-bg-elevated text-accent-primary border-l-accent-primary"
+                    : isApproved
+                    ? "text-accent-success border-l-accent-success bg-bg-elevated"
+                    : "text-text-tertiary border-l-transparent hover:text-text-secondary hover:bg-bg-elevated"
+                  }
+                `}
+              >
+                <div className="flex items-center gap-3">
+                  <GateDiamond status={entry.status} />
+                  <span className="font-lora text-xs italic">{entry.label}</span>
+                </div>
+                {isActive && <ChevronRight size={12} className="text-accent-primary" />}
+              </Link>
+            );
+          }
+
+          // Regular step entry
+          const status = stepStatuses[entry.number] ?? "ready";
+          const isActive = currentStep === entry.number;
 
           return (
             <Link
-              key={step.number}
-              href={step.slug ? `/create/${step.slug}` : `/create`}
+              key={entry.number}
+              href={entry.slug ? `/create/${entry.slug}` : `/create`}
               className={`
                 flex items-center justify-between px-4 py-2.5 transition-all duration-200 group
                 relative
@@ -106,10 +225,10 @@ export default function Sidebar() {
             >
               <div className="flex items-center gap-3">
                 <span className="font-dm-mono text-[11px] text-text-tertiary w-4 shrink-0">
-                  {String(step.number).padStart(2, "0")}
+                  {String(entry.number).padStart(2, "0")}
                 </span>
                 <span className="font-syne text-xs font-500">
-                  {step.label}
+                  {entry.label}
                 </span>
               </div>
 
