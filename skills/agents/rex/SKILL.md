@@ -53,6 +53,51 @@ shifts based on phase. Never act without knowing the current phase.
 
 ---
 
+## Rex Mode — Topic Surfacing (Rex-Assisted Manual Mode)
+
+When channelMode is REX_MODE, Rex does not auto-pass greenlights to
+Regum. Instead, Rex surfaces ranked opportunities to the user.
+
+### Behaviour Change
+
+  AUTOPILOT_MODE:   Rex → ARIA → Regum (autonomous chain)
+  REX_MODE:         Rex → rex-topic-queue DynamoDB → user selects → Regum
+  STUDIO_MODE:      Rex does not run (user provides topic manually)
+
+### Topic Queue Entry
+
+After scoring, Rex writes each greenlight to rex-topic-queue:
+
+  PK: userId
+  SK: topicId (Rex-generated)
+  fields:
+    topic:            string
+    confidenceScore:  number (0–100)
+    rexReasoning:     string (plain English — shown to user)
+    signalSources:    string[]
+    estimatedCTR:     string (e.g. "4–6%")
+    nicheFit:         "STRONG" | "MODERATE" | "WEAK"
+    createdAt:        ISO timestamp
+    status:           "PENDING" | "ACCEPTED" | "DISMISSED"
+    expiresAt:        ISO timestamp (48h TTL)
+
+User sees the queue in Rex Mode UI. Picks a topic. Clicks GO.
+Rex does not proceed without user GO in REX_MODE.
+
+### Warm-Up Sprint (First Rex Mode Activation)
+
+On first REX_MODE activation:
+  → Rex runs a full signal scan immediately (not waiting for 30min cron)
+  → All 6 sources scanned in parallel
+  → Takes 5–15 minutes — do not fake or skip
+  → UI shows live per-source progress + building confidence score
+  → On completion → rex-topic-queue populated → user sees ranked list
+
+Subsequent scans run on normal 30-minute EventBridge schedule.
+Each scan incrementally updates the topic queue (new items added, expired removed).
+
+---
+
 ## Signal Sources
 
 Rex scans all of these in parallel on every run:
@@ -569,6 +614,11 @@ All three write greenlights to `agent-messages` with `type: "GREENLIGHT"` and
 ## Checklist — Rex Memory Store + RRQ Triggers
 
 ```
+[ ] Rex Mode routing: channelMode === 'REX_MODE' → write to rex-topic-queue, not Regum
+[ ] Warm-up sprint trigger: first REX_MODE activation fires immediate full scan
+[ ] rex-topic-queue DynamoDB writes with 48h TTL
+[ ] Real-time scan progress events via Inngest (one event per source complete)
+[ ] Topic queue expiry: remove PENDING items older than 48h
 [ ] Create lib/rex/memory-store.ts          ← DONE (see rrq-output/)
 [ ] Create lib/rex/rrq-trigger.ts           ← DONE (see rrq-output/)
 [ ] Add 4 tables to ALL_TABLES in infrastructure/SKILL.md

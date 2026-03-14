@@ -473,6 +473,41 @@ async function runRosterHealthCheck(roster: AvatarProfile[]): Promise<void> {
 
 ---
 
+## Presenter Rotation (Avatar Mode — Studio + Rex Modes Only)
+
+Regum selects the presenter for each video. Rules:
+
+  1. Filter by content type fit (presenter.topics includes brief.contentType)
+  2. Apply rotation rule: same presenter not used 3× in a row
+  3. Score by Zeus performance data (per contentType performance score)
+  4. Apply 20% randomness: 80% chance of top scorer, 20% chance of #2
+     (prevents the channel feeling algorithmic)
+
+Performance data: sourced from avatar-profiles DynamoDB (Zeus updates scores).
+Faceless mode: no presenter selected. This section is skipped entirely.
+Full RRQ / Autopilot Mode: no presenter. Faceless always.
+
+Presenter selection written to QeonBrief.presenterId before handoff to Qeon.
+
+---
+
+## Sprint Council Score — Regum's Contribution (Full RRQ Mode)
+
+In Full RRQ / Autopilot Mode, Regum provides a strategic fit score
+to the sprint council before production begins.
+
+Regum evaluates:
+  → Does this topic fit the channel's current niche and editorial direction?
+  → Does it avoid repeating an angle published in the last 14 days?
+  → Does it fit the upload cadence (not too close to previous video)?
+  → Does the geo strategy make sense for the market?
+
+Output: score 0–100 + one sentence of reasoning
+Written to sprint-evaluations DynamoDB (keyed by jobId)
+Weight in sprint composite: 20%
+
+---
+
 ## Regum Performance Metrics (Zeus tracks these)
 
 ```

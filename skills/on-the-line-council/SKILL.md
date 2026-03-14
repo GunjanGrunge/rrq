@@ -97,6 +97,54 @@ export async function triggerCouncil(
 
 ---
 
+## Pre-Production Sprint Council (Full RRQ / Autopilot Mode Only)
+
+In Full RRQ Mode, the council runs a composite confidence evaluation
+BEFORE any production spend is committed. No EC2 launches until
+this sprint clears.
+
+This is distinct from the main council sign-off chain. The sprint
+council is a scoring pass. The main council is a sign-off chain.
+Both run in Full RRQ Mode — sprint council first.
+
+### When It Fires
+
+Triggered after quality gate passes (score ≥ 60) and before Step 5 (Audio).
+Qeon calls triggerSprintCouncil() before invoking any EC2 instance.
+
+### Composite Score Dimensions
+
+  Rex confidence score:        weight 20%
+  Regum strategic fit:         weight 20%
+  Qeon producibility:          weight 15%
+  Quality gate composite:      weight 25%
+  The Line synthesis:          weight 10%
+  Oracle trend alignment:      weight 10%
+
+Each agent returns a 0–100 score + one sentence of reasoning.
+Scores weighted and summed to produce sprint composite (0–100).
+
+### Score Ranges and Decisions
+
+  90–100   PROCEED_IMMEDIATELY     No notes. Production begins.
+  75–89    PROCEED_WITH_NOTES      Notes attached to QeonBrief. Production begins.
+  60–74    PROCEED_WITH_WARNINGS   Warnings visible in Mission Control. Production begins.
+  40–59    SPRINT_FEEDBACK_LOOP    One revision cycle. Regum adjusts angle/approach.
+                                   Re-score. If still 40–59 → ABORT.
+  <40      ABORT                   Topic does not meet bar. Rex finds next.
+
+### DynamoDB: sprint-evaluations table
+
+  PK: jobId
+  SK: evaluationId
+  fields:
+    rexScore, regumScore, qeonScore, qualityGateScore,
+    theLineScore, oracleScore, compositeScore, scoreRange,
+    agentReasonings: Record<string, string>,
+    decision, createdAt
+
+---
+
 ## Council Sequence
 
 Agents speak in this exact order. Each domain speaks once.

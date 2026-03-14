@@ -803,6 +803,71 @@ channel-confidence    PK: channelId
 
 ---
 
+## Confidence Scoring — Dynamic Niche + Mode Evaluation
+
+After user selects niches and mode per niche, before they proceed:
+
+**Trigger:** user clicks `[EVALUATE]` button
+
+**What fires:**
+- Bedrock Haiku call (fast, ~2–3 seconds)
+- Input: niche combination, mode per niche, channel type
+- Haiku evaluates 7 dimensions dynamically (NOT hardcoded scores):
+
+```
+1. Content producibility     Can TONY + Wan2.2 handle this niche visually?
+2. Niche-mode fit            Does faceless/face work for this content type?
+3. Market saturation         How crowded is this niche right now?
+4. Cross-niche coherence     Do these niches make sense on one channel?
+5. AI detection risk         How likely is YouTube to flag this combo?
+6. Revenue potential         CPM estimates per niche
+7. Audience overlap          Do these audiences overlap or fragment?
+```
+
+**Output:**
+- Overall score (0–100)
+- Per-niche breakdown with score + label
+- Risk warnings (specific, not generic)
+- Suggestions (e.g. "switch Racing to faceless → score goes from 67 to 89")
+
+**Caching:**
+- Result stored in `channel-confidence` DynamoDB table (24h TTL)
+- If user returns within 24h with same niche/mode combo → show cached result
+- Re-evaluate available any time via button
+
+**User can:**
+- Change any niche or mode and re-evaluate instantly
+- No limit on evaluations
+- Proceed with any score (not gated — informational only)
+
+---
+
+## Rex Warm-Up Sprint — First Run Intelligence
+
+**Trigger:** user completes onboarding and enters Rex Mode for the first time
+
+**What fires:**
+- Rex full signal scan (all 6 sources in parallel)
+- Takes 5–15 minutes — do not skip or fake this
+- Real market data, not placeholder scores
+
+**UI during scan:**
+- Rex warm-up sprint screen (see frontend-design-spec `## Rex Warm-Up Sprint UI`)
+- Live signal feed updating as each source completes
+- Confidence score building in real time
+
+**Why it takes time (explain to user in UI):**
+- Rex is querying 6 live signal sources
+- Building a real trend map for the niche
+- First scan is the most thorough — subsequent scans are incremental
+
+**On completion:**
+- Rex Topic Queue populated with ranked opportunities
+- User sees ranked list with confidence scores and Rex reasoning
+- User picks topic and clicks GO
+
+---
+
 ## Checklist
 
 ```

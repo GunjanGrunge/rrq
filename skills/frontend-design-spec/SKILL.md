@@ -1679,3 +1679,192 @@ channel-confidence    — confidence score cache + last evaluated timestamp
                         read in ConfidenceScoreCard via /api/onboarding/confidence
                         written by evaluateChannelConfidence() in lib/onboarding/confidence-eval.ts
 ```
+
+---
+
+## Brand Copy — Official Taglines
+
+Hero tagline (H1):
+> "The fastest way to start, grow, and run your channel."
+
+Sub-line (H2 / hero description):
+> "Your AI Content Manager. Research, script, produce, upload —
+>  you stay in control of what matters."
+
+Usage rules:
+- Hero tagline: always on landing page, always above the fold
+- Sub-line: always paired with hero tagline
+- Never use "factory", "autonomous", "AI-generated" in user-facing copy
+- "Your channel" not "a YouTube channel" — personal, not generic
+
+---
+
+## Three Product Modes — UI Framing
+
+```
+STUDIO MODE  (was: Manual Pipeline)
+  Label:       "Studio"
+  Description: "You choose. AI executes."
+  Icon:        Director's clapperboard or equivalent
+
+REX MODE  (new)
+  Label:       "Rex Mode"
+  Description: "Rex finds the opportunities. You pick and fire."
+  Icon:        Targeting crosshair or radar indicator
+
+AUTOPILOT MODE  (was: Full RRQ / GO RRQ)
+  Label:       "Autopilot"
+  Description: "Set your niche. RRQ handles everything."
+  Icon:        Autopilot / orbit indicator
+  Badge:       "Niche locked required"
+```
+
+Design notes:
+- Mode cards displayed as a 3-column row on the dashboard home screen
+- Active mode card: amber border, icon tinted amber, label in Syne weight 700
+- Inactive mode cards: `#111111` surface, secondary text, no border highlight
+- "Niche locked required" badge on Autopilot: DM Mono 10px, amber text on `#2a1f00` background, 4px border-radius
+- Mode switcher available in sidebar footer — compact pill row (Studio / Rex / Autopilot)
+- Mode change triggers a confirmation modal if a job is in progress
+
+---
+
+## Confidence Score UI Component
+
+Shown during onboarding after niche + mode selection.
+User clicks EVALUATE → Haiku API call → score renders.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  CHANNEL CONFIDENCE SCORE                                         │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│              84                                                   │
+│             ───  / 100                GOOD                        │
+│                                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│  PER-NICHE BREAKDOWN                                              │
+│                                                                   │
+│  Tech & AI    [Faceless]   ████████████████████░░   88   GOOD    │
+│  Finance      [Face]       █████████████████░░░░░   79   GOOD    │
+│  Racing       [Face]       ████████████░░░░░░░░░░   64   MODERATE│
+│                                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│  ⚠  Racing with a face presenter raises AI detection risk in     │
+│     sports content — YouTube flags synthetic sports commentary   │
+│     more aggressively than other niches.                         │
+│                                                                   │
+│  💡  Switch Racing to Faceless → score goes from 64 to 89        │
+│                                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  [ACCEPT]          [TWEAK]          [START OVER]                  │
+│                                                                   │
+│  [RE-EVALUATE]  — available any time                             │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Layout rules:
+- Overall score: Syne, 72px, weight 800 — dominant visual element
+- "/100" suffix: Syne, 24px, secondary colour (`#a8a09a`)
+- Score colour: green (`#22c55e`) at 80+, amber (`#f5a623`) at 60–79, red (`#ef4444`) below 60
+- Label (GOOD / MODERATE / etc.): DM Mono, 13px uppercase, same colour as score
+- Per-niche rows: niche name in Syne 14px, mode badge in DM Mono 11px, progress bar fills amber
+- Warning cards: amber-left-border (`3px solid #f5a623`), `#1a1500` background, DM Mono 13px
+- Suggestion chips: `#0f1a0f` background, green left border, DM Mono 13px — tappable to apply suggestion
+- ACCEPT button: full amber (`#f5a623`), dark text, disabled (greyed) if overall < 40
+- TWEAK / START OVER: ghost buttons, secondary text
+- RE-EVALUATE: small text link below button row, DM Mono 12px — always enabled
+
+Caching behaviour:
+- If a cached result exists (same niches + modes, within 24h TTL) → display cached result
+- Show "Last evaluated X hours ago" in DM Mono 11px secondary beneath the score
+- RE-EVALUATE button always visible — never hide it even when showing cached result
+- On RE-EVALUATE click: spinner replaces score for ~2–3 seconds, then new result renders
+
+---
+
+## Rex Warm-Up Sprint UI
+
+Shown when user first enables Rex Mode.
+Replaces the normal topic selection screen during the initial scan.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                   │
+│  Rex is scanning the market                                       │
+│  Finding the best opportunities in Tech & AI right now.          │
+│                                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  ⚠  This takes 10–15 minutes. Rex is gathering real market  │  │
+│  │     intelligence so your first video is based on actual     │  │
+│  │     trends — not guesses. Worth the wait.                   │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                   │
+│  SIGNAL SOURCES                                                   │
+│                                                                   │
+│  ✓  Google Trends              scanned                           │
+│  ✓  YouTube search signals     scanned                           │
+│  ⟳  Reddit trending            scanning...                       │
+│  ○  TikTok Creative Center     queued                            │
+│  ○  News API                   queued                            │
+│  ○  Twitter/X signals          queued                            │
+│                                                                   │
+│  Current confidence: 71 → building...                            │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Layout and animation rules:
+- Header: Syne, 28px, weight 700, `#f0ece4`
+- Sub-line: DM Mono, 14px, secondary (`#a8a09a`) — niche name in amber
+- Disclaimer card: amber left border (`3px solid #f5a623`), `#1a1500` background, DM Mono 13px `#f0ece4`
+- Signal feed rows: DM Mono 13px — `✓` in green, `⟳` in amber with spin animation, `○` in `#4a4540`
+- Row state transitions animate in place: `○` → `⟳` → `✓`, each with a 200ms fade
+- Confidence readout: Syne 20px weight 700, colour tracks score (amber while building, green on complete)
+- "→ building..." suffix pulses opacity 0.4 → 1.0 at 1s interval while scan is running
+- On completion: confidence score snaps to final value, success state fades in, auto-transitions
+  to Rex Topic Queue screen after a 1.5 second hold
+- No skip button — this scan runs to completion, period
+
+---
+
+## Instagram Handoff Card
+
+Shown after YouTube upload completes, at the bottom of the job completion screen.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Ready for Instagram                          [COMING SOON]       │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  [thumbnail preview — 9:16 crop of Short]                        │
+│                                                                   │
+│  Caption:                                                         │
+│  "GPT-5 just changed everything. Here's what nobody is           │
+│   talking about yet. 👇 #AI #Tech #GPT5"                         │
+│                                                                   │
+│  Best time to post:   Today · 6:30 PM EST                        │
+│                                                                   │
+│  [DOWNLOAD VIDEO]          [COPY CAPTION]                         │
+│                                                                   │
+│  Paste on Instagram Reels for maximum cross-platform reach.       │
+│                                                                   │
+│  ──────────────────────────────────────────────────────────────  │
+│  Boost this clip on Instagram via Facebook Ads — coming soon      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Layout rules:
+- Card sits below the main "Upload complete" success block — same surface colour, `1px solid #222222` border
+- Header "Ready for Instagram": Syne 16px weight 700, `#f0ece4`
+- COMING SOON badge: DM Mono 10px, amber text (`#f5a623`) on `#2a1f00` background, 4px border-radius, inline right-aligned
+- Thumbnail preview: 9:16 ratio, `#1a1a1a` background, rounded 8px — shows the Shorts clip frame
+- Caption block: DM Mono 13px, `#f0ece4`, on `#161616` background, 8px border-radius, 12px padding
+- Recommended time: DM Mono 12px secondary — populated by Regum's scheduling logic
+- DOWNLOAD VIDEO: primary amber button, full-width on mobile, half-width on desktop
+- COPY CAPTION: ghost button matching width — copies to clipboard, label flips to "Copied ✓" for 2s
+- Footer note "Paste on Instagram Reels...": DM Mono 11px, secondary (`#a8a09a`)
+- Facebook Ads integration line: DM Mono 11px, `#4a4540` (greyed), no interaction — informational only
+- Entire card is non-blocking — user can close/dismiss without interacting

@@ -121,33 +121,70 @@ The council already failed this video. Do not proceed.
     "uniquenessScore": "Original benchmark test — not found in any competitor video"
   },
   "uniquenessAutoReject": false,
-  "recommendation": "PROCEED | REWRITE | REJECT",
-  "sprintCritical": "boolean — if true, REJECT threshold is relaxed by 0.3"
+  "compositeScore": 81,
+  "scoreRange": "SHIP_WITH_NOTES",
+  "recommendation": "SHIP_IMMEDIATELY | SHIP_WITH_NOTES | SHIP_WITH_WARNINGS | SPRINT_LOOP | ABORT",
+  "sprintCritical": "boolean — if true, SPRINT_LOOP threshold is relaxed by 0.3"
 }
 ```
 
 ---
 
-## Decision Logic
+## Decision Logic — Range-Based Composite Scoring
 
-```
-IF overall >= user threshold
-  → recommendation: PROCEED
-  → pipeline continues to audio automatically
+The quality gate now produces a composite confidence score (0–100), not a
+binary pass/fail. This score feeds directly into the pre-production sprint
+council (skills/full-rrq/SKILL.md) before any production spend is committed.
 
-IF overall < user threshold AND attempt == 1
-  → recommendation: REWRITE
-  → identify weakSections
-  → rerun only those sections (research deeper + rewrite)
-  → rescore — this is attempt 2
+### Composite Score Calculation
 
-IF overall < user threshold AND attempt == 2
-  → recommendation: REJECT
-  → stop pipeline, no tokens wasted on audio/video
-  → show user the rejection screen
-```
+Dimension scores (0–10) are converted to a 0–100 composite:
 
-Maximum two attempts. Never more. This protects token budget.
+  Hook Strength          ×  weight 20%
+  Retention Structure    ×  weight 20%
+  Title CTR              ×  weight 15%
+  Keyword Coverage       ×  weight 10%
+  Competitor Diff        ×  weight 15%
+  Muse Blueprint         ×  weight 10%
+  Uniqueness Score       ×  weight 10%
+
+  composite = sum(score × weight) × 10   // converts to 0–100
+
+### Score Ranges
+
+  90–100   SHIP_IMMEDIATELY    No notes. Proceed to production.
+  75–89    SHIP_WITH_NOTES     Minor feedback attached. Proceed.
+  60–74    SHIP_WITH_WARNINGS  Specific weaknesses flagged. Proceed with user visibility.
+  40–59    SPRINT_LOOP         Hold. One revision cycle. Re-score after targeted rewrite.
+           (replaces old REWRITE — same mechanic, new framing)
+  <40      ABORT               Topic structurally weak. Rex finds next opportunity.
+
+### Sprint Feedback Loop (score 40–59)
+
+  On SPRINT_LOOP:
+    → identify weakSections (same logic as before)
+    → targeted rewrite of weak sections only (same mechanic as old REWRITE)
+    → re-score — this is attempt 2
+    → if score still 40–59 after attempt 2 → ABORT (no third attempt)
+    → if score climbs to 60+ → continue at that range tier
+
+### Uniqueness Hard Floor (unchanged)
+
+  uniquenessScore < 5.0 → automatic ABORT regardless of composite score.
+  No sprint loop. No second attempt. Topic rejected immediately.
+
+### Sprint Council Integration (Full RRQ Mode only)
+
+  In Full RRQ / Autopilot Mode:
+    Quality gate score is ONE INPUT into the sprint council composite.
+    Sprint council fires AFTER quality gate passes (score ≥ 60).
+    Quality gate weight in sprint council: 25%.
+    See: skills/full-rrq/SKILL.md → Pre-Production Sprint Council.
+
+  In Studio Mode / Rex Mode:
+    Quality gate is the sole gate. No sprint council.
+    Score ≥ user threshold (0–10 setting) → PROCEED.
+    Score < threshold → SPRINT_LOOP or ABORT as above.
 
 ---
 
@@ -254,16 +291,21 @@ When score meets threshold, show the report before audio begins:
 ┌─────────────────────────────────────────────┐
 │  ✓ Quality Gate Passed                      │
 │                                             │
+│              81 / 100                       │
+│          SHIP_WITH_NOTES                    │
+│                                             │
 │  Hook Strength          8.5 / 10  ✅        │
 │  Retention Structure    7.2 / 10  ✅        │
 │  Title CTR              9.0 / 10  ✅        │
 │  Keyword Coverage       6.5 / 10  ✅        │
 │  Competitor Gap         8.0 / 10  ✅        │
-│                                             │
-│  OVERALL                7.8 / 10            │
+│  Muse Blueprint         9.0 / 10  ✅        │
+│  Uniqueness             8.2 / 10  ✅        │
 │                                             │
 │  [PROCEED TO VIDEO →]                       │
 └─────────────────────────────────────────────┘
 ```
 
-User sees the score and approves before ElevenLabs credits are spent.
+Composite score (0–100) displayed prominently. Score range label
+(SHIP_IMMEDIATELY / SHIP_WITH_NOTES / SHIP_WITH_WARNINGS / SPRINT_LOOP / ABORT)
+shown directly below. User sees both before ElevenLabs credits are spent.

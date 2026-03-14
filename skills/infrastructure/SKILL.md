@@ -789,6 +789,43 @@ NEW:
 
 ---
 
+## SENTINEL — Infrastructure Monitoring
+
+SENTINEL is the infrastructure monitoring agent for Autopilot Mode.
+Read skills/sentinel/SKILL.md for full architecture.
+
+### Observability Stack
+
+  Phase 1 (now):   SignOz (open source, self-hosted on EC2 t3.small ~$15/mo)
+  Phase 2 (later): Datadog (upgrade path — endpoint + key swap only, no Lambda changes)
+
+SignOz collects:
+  → Lambda execution logs (via OpenTelemetry OTLP exporter)
+  → EC2 instance heartbeats (DynamoDB write every 60s)
+  → Inngest workflow step completions/failures
+  → DynamoDB write failures
+  → S3 upload failures
+
+### New Environment Variables
+
+  AWS_SNS_ALERT_TOPIC_ARN      SNS topic ARN for SMS alerts to user
+  SIGNOZ_ENDPOINT              OpenTelemetry collector endpoint (SignOz)
+  SIGNOZ_API_KEY               SignOz API key for ingestion
+
+### New DynamoDB Table: sentinel-alerts
+
+  PK: channelId
+  SK: alertId
+  GSI1: type (query all alerts by type)
+  GSI2: createdAt (query recent alerts)
+  fields:
+    alertId, channelId, type, severity (LOW|MEDIUM|HIGH|CRITICAL),
+    component, message, retryAttempts, resolved, resolvedAt,
+    snsSent, createdAt
+  Billing: PAY_PER_REQUEST (Rule 1)
+
+---
+
 ## Build Checklist
 
 ```
@@ -847,6 +884,10 @@ EC2 SkyReels  20 × 35min × $1.60/hr:  ~$19/month
 EC2 Wan2.2    20 × 20min × $0.45/hr:   ~$3/month
 Lambda (boot + watchdog + TONY):  ~$0.10/month
 S3, Bedrock, ElevenLabs:        unchanged
+
+SignOz (EC2 t3.small, observability)     ~$15/mo   (Autopilot Mode users only)
+AWS SNS (alert SMS)                      ~$0.01    per alert (negligible)
+avatar-portrait-gen (g4dn.xlarge spot)   ~$0.04    amortized per video (generates once, reused forever)
 
 Total EC2 + DynamoDB:           ~$24-26/month
 

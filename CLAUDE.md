@@ -1,7 +1,7 @@
 # Rex Regum Qeon (RRQ) — Claude Code Project Guide
 
-> Indonesian: "King of Kings"
-> An autonomous AI-powered YouTube content system that covers the world.
+> "The fastest way to start, grow, and run your channel."
+> "Your AI Content Manager. Research, script, produce, upload — you stay in control of what matters."
 
 ---
 
@@ -43,14 +43,17 @@ Phase 4+:  NOT STARTED
 ### Agent Roster (for org chart)
 ```
 Zeus, Rex, Regum, Qeon, ARIA, SNIPER, MUSE, ORACLE, THEO, JASON, VERA, THE LINE,
-TONY (new Phase 3.5 — code agent, MUSE's execution arm)
+TONY (Phase 3.5 — code agent, MUSE's execution arm),
+SENTINEL (Phase 4+ — infrastructure monitor, Autopilot Mode only)
 
 Universal Escalation Protocol — Zeus-owned, all agents reference
   Max attempts per gate → isStuck() detection → Zeus evaluates → SES + in-app if unresolved
+  Autopilot Mode adds: SENTINEL → SNS SMS as third channel for infra failures
   See: skills/escalation/SKILL.md
 
 Skill Systems (not agents — infrastructure-level):
 AVATAR-GEN (Phase 4d — FLUX.1 [dev] portrait generator, onboarding + roster expansion only)
+SENTINEL (Phase 4+ — SignOz observability, Haiku retry, SNS escalation, Autopilot Mode only)
 ```
 
 ### Token-Efficient Session Resumption
@@ -83,14 +86,24 @@ significant trial and error. Ignoring them produces wrong code.
 
 ## What This Is
 
-An end-to-end system with two modes:
+A one-stop shop to start, grow, and run a YouTube channel — with AI
+doing the research, writing, production, and strategy.
 
-**Manual Mode** — user enters a topic, the 13-step pipeline produces
-and uploads a YouTube video with zero further input needed.
+Three product modes:
 
-**GO RRQ Mode** — four autonomous agents (Zeus, Rex, Regum, Qeon)
-monitor the world, identify the best content opportunity, and run
-the full pipeline with zero human input. One button. Fully autonomous.
+**STUDIO MODE** (was: Manual Pipeline) — user enters a topic, the 13-step
+pipeline produces and uploads a YouTube video. User stays in control.
+
+**REX MODE** (new) — Rex scans the market, surfaces ranked opportunities
+to the user. User picks a topic and fires. AI executes. Best of both worlds.
+
+**AUTOPILOT MODE** (was: GO RRQ) — four autonomous agents (Zeus, Rex, Regum,
+Qeon) monitor the world, identify the best content opportunity, and run the
+full pipeline. Niche-locked channels only. SENTINEL monitors infrastructure.
+Faceless animated format (What If + Conspiracy). No avatars in this mode.
+
+Instagram: coming soon. User downloads video + pre-written caption for manual
+posting. Facebook Ads integration spec'd for a future phase.
 
 ---
 
@@ -126,6 +139,8 @@ the full pipeline with zero human input. One button. Fully autonomous.
 | Universal escalation protocol (agent stuck detection + SES notifications) | `skills/escalation/SKILL.md` |
 | Anime series (Coming Soon spec — LoRA pipeline) | `skills/anime-series/SKILL.md` |
 | Avatar presenter roster + portrait generation | `skills/avatar-gen/SKILL.md` |
+| SENTINEL (infrastructure monitor — Autopilot Mode only) | `skills/sentinel/SKILL.md` |
+| Rex Mode (Rex-assisted manual — topic surfacing + user GO trigger) | `skills/manual-rex-mode/SKILL.md` |
 | Data Harvest (Rex + ARIA) | `skills/data-harvest/SKILL.md` — includes 6 new intent-layer sources: Google Autocomplete, YouTube Suggestions, Reddit Trending, TikTok Creative Center, Google Keyword Planner, Polymarket |
 | Zeus agent | `skills/agents/zeus/SKILL.md` |
 | Rex agent | `skills/agents/rex/SKILL.md` |
@@ -191,6 +206,12 @@ AWS SUPPORT SERVICES
   Secrets Manager     All API keys — never hardcode credentials
   SES                 Transactional email notifications (AGENT_STUCK, JOB_FAILED, HUMAN_APPROVAL)
                       Action buttons via signed URLs — user resolves stuck jobs from email
+  SNS                 SMS alerts for SENTINEL infrastructure failures (Autopilot Mode only)
+
+OBSERVABILITY (Autopilot Mode)
+  SignOz              Open source — EC2 t3.small, OTLP log ingestion, Lambda + EC2 metrics
+                      Upgrade path: Datadog (endpoint swap only, no Lambda changes)
+  SENTINEL            Haiku-guided retry → SNS SMS → in-app if infra failure unresolved
 ```
 
 ---
@@ -333,7 +354,10 @@ DynamoDB — Working Memory (real-time, milliseconds)
   avatar-profiles         Presenter roster — seed, config, performance scores, evolution history
   notifications       User notification inbox — agent stuck, job failed, approval required
   channel-confidence  Niche+mode confidence score cache (Haiku eval, 24h TTL)
-  series-registry     Anime series state machine (COMING_SOON — spec only)
+  series-registry     What If + Conspiracy arc state machine (Full RRQ faceless mode)
+  rex-topic-queue     Rex-surfaced topics awaiting user GO — Rex Mode only (48h TTL)
+  sprint-evaluations  Pre-production sprint council scores per job (Full RRQ only)
+  sentinel-alerts     SENTINEL infrastructure alerts + resolution log (Autopilot Mode only)
 
 Note: user identity, email, and plan tier stored on Clerk publicMetadata.
 All DynamoDB user tables use Clerk userId as partition key.
@@ -386,6 +410,13 @@ Step 13  Upload         Oracle Domain 11 — AI detection resistance audit (pre-
 
 Steps 6, 7, 8 fire in parallel via Promise.allSettled().
 Production time ≈ max(SkyReels ~12min, Wan2.2 ~10min, TONY Lambda ~1min) = ~12 min.
+
+Autopilot Mode (Full RRQ): SENTINEL monitors all steps in real time.
+  Faceless mode: Steps 6 (SkyReels) skipped entirely. TONY + Wan2.2 handle all visuals.
+  Pre-production sprint council fires before Step 5 — no EC2 launched until sprint clears.
+
+Studio Mode: user-triggered, no SENTINEL, standard escalation on failure.
+Rex Mode: user selects topic from Rex queue, then same pipeline as Studio Mode.
 
 visualType per beat (Muse's MuseBlueprint):
 ```
@@ -742,6 +773,13 @@ SES_FROM_ADDRESS=notifications@rrq.ai
 SES_REGION=us-east-1
 SES_CONFIGURATION_SET=rrq-transactional
 
+# AWS SNS — Infrastructure Alerts (Autopilot Mode / SENTINEL only)
+AWS_SNS_ALERT_TOPIC_ARN=          # SNS topic ARN for SMS alerts to user phone
+
+# Observability — SENTINEL (Autopilot Mode only)
+SIGNOZ_ENDPOINT=                   # OpenTelemetry OTLP collector endpoint (SignOz)
+SIGNOZ_API_KEY=                    # SignOz ingestion API key
+
 # Vercel + Inngest
 INNGEST_EVENT_KEY=
 INNGEST_SIGNING_KEY=
@@ -874,8 +912,10 @@ AWS Bedrock base (agent scheduled runs)              ~$8.00
 S3 storage + transfer baseline                       ~$2.00
 Inngest                                              ~$0.00  (free tier)
 Vercel                                               ~$0.00  (free tier)
+SignOz EC2 t3.small (Autopilot Mode users only)      ~$15.00 (opt-in)
 ────────────────────────────────────────────────────
-Monthly fixed                                        ~$10.00
+Monthly fixed (Studio/Rex modes)                     ~$10.00
+Monthly fixed (Autopilot Mode)                       ~$25.00
 ```
 
 ### Total at Scale (monthly)
@@ -934,8 +974,8 @@ Continue building.
 Phase 1  — Frontend Foundation
 Phase 2  — Manual Pipeline API Routes
 Phase 3  — Lambda Workers
-Phase 4  — EC2 GPU Instances (4a SkyReels / 4b Wan2.2 / 4c TONY Lambda / 4d FLUX Portrait)
-Phase 4e — Anime Series (COMING SOON — LoRA pipeline, funded phase)
+Phase 4  — EC2 GPU Instances + TONY Lambda (4a SkyReels / 4b Wan2.2 / 4c TONY Lambda / 4d FLUX Portrait / 4e SENTINEL)
+Phase 4e — Anime Series (COMING SOON — LoRA pipeline, funded phase — see skills/anime-series/SKILL.md)
 Phase 5  — Memory + Agent Infrastructure
 Phase 6  — Rex Agent
 Phase 7  — Regum Agent

@@ -6,11 +6,15 @@ description: >
   AnimationBlueprint instead of a MuseBlueprint when faceless mode is active.
   TONY handles all visuals. Wan2.2 handles atmospheric b-roll. ElevenLabs
   handles voice. SkyReels EC2 is never launched. Three content formats:
-  WHAT_IF, CONSPIRACY, and ANIME_SERIES (Coming Soon). Faceless mode is also
-  available as a user toggle in the manual pipeline — not exclusive to Full RRQ.
-  Read this skill when building Full RRQ Mode, the AnimationBlueprint system,
-  the confidence score evaluator, the faceless pipeline path, or the Full RRQ
-  disclaimer modal.
+  WHAT_IF, CONSPIRACY, and ANIME_SERIES (Coming Soon — LoRA pipeline, funded
+  phase). Full RRQ is only available when the channel is niche-locked.
+  SENTINEL monitors all infrastructure in autonomous mode and escalates via
+  SNS + in-app on any failure. A sprint council with composite confidence
+  scoring fires before any production spend is committed. A disclaimer modal
+  is shown to the user before GO fires. Read this skill when building Full RRQ
+  Mode, the AnimationBlueprint system, the sprint council scoring system, the
+  SENTINEL integration, the faceless pipeline path, or the Full RRQ disclaimer
+  modal.
 ---
 
 # Full RRQ Mode — Faceless Animated Channel System
@@ -18,21 +22,25 @@ description: >
 ## What Full RRQ Is
 
 ```
-Full RRQ = faceless animated channel.
+Full RRQ = fully autonomous faceless animated channel.
 
 No SkyReels. No avatar portraits. No EC2 GPU for talking heads.
-Voice + animation only.
+Voice + animation only. Niche-locked channels only.
 
 TONY handles all stills and animated visuals.
 Wan2.2 handles atmospheric b-roll (environmental, cinematic, mood).
 ElevenLabs handles all narration — voice cues preserved exactly as in
 standard mode.
 
-This is not a downgrade. Faceless animated channels routinely outperform
-avatar channels in niches where data visualisation and investigative
-storytelling dominate. TONY's Remotion compositions are generated fresh
-per video — never identical. Oracle Domain 11 runs an AI detection
-resistance check before every upload.
+SENTINEL monitors all infrastructure in this mode. Failures are retried
+automatically. If retry fails, SENTINEL escalates via SNS + in-app
+notification. Nothing fails silently.
+
+A sprint council with composite confidence scoring fires before any
+production spend (before EC2 launches). No video enters production until
+the sprint council clears it or the user overrides.
+
+Oracle Domain 11 (AI detection resistance) runs pre-upload on every video.
 ```
 
 ---
@@ -46,11 +54,30 @@ NOT Full RRQ's job:   Generating the script                  → Qeon script ste
 NOT Full RRQ's job:   Managing upload schedule               → Regum + Theo
 NOT Full RRQ's job:   QA and standards gate                  → Vera
 NOT Full RRQ's job:   AI detection resistance policy         → Oracle Domain 11
+NOT Full RRQ's job:   Agent stuck detection + recovery       → Universal escalation protocol
 ```
 
-Full RRQ owns exactly two decisions:
+Full RRQ owns exactly three decisions:
 1. Whether faceless mode is active for a given niche (toggled in settings, or set by GO RRQ)
 2. Which content format runs (WHAT_IF / CONSPIRACY / LET RRQ DECIDE)
+3. Whether the sprint council score clears the video for production spend
+
+---
+
+## Niche Lock Requirement
+
+Full RRQ is only available when the channel is set to `NICHE_LOCKED` or
+`MULTI_NICHE` mode in `channel-settings`. Open channels cannot run Full RRQ.
+
+```
+OPEN           Full RRQ not available. Manual mode only.
+NICHE_LOCKED   Full RRQ available. All GO RRQ videos stay within the locked niche.
+MULTI_NICHE    Full RRQ available. Rex selects from whichever niches are marked FACELESS.
+```
+
+The disclaimer modal checks this condition before rendering. If the channel is
+OPEN, the GO RRQ button is disabled and shows: "Switch to a locked niche to
+enable Full RRQ."
 
 ---
 
@@ -80,6 +107,9 @@ Sub-label (when Faceless selected):
 "No avatar. TONY generates all visuals.
  Wan2.2 handles atmospheric b-roll. Voice only."
 ```
+
+The manual mode faceless toggle does NOT trigger the sprint council or
+SENTINEL. Those are Full RRQ (autonomous) features only.
 
 ---
 
@@ -156,6 +186,7 @@ ANIME_SERIES
   Parked for funded phase.
   Do not build. Do not wire. Table spec only (see Series Registry below).
   In the disclaimer modal: shown as disabled with "Coming Soon" label.
+  Read skills/anime-series/SKILL.md for full future spec.
 ```
 
 ---
@@ -182,34 +213,39 @@ export type AnimationVisualType =
   | 'COMPARISON_CHART'    // TONY — side-by-side comparison layout
   | 'ATMOSPHERE';         // Wan2.2 — environmental b-roll only
 
-export type SceneMood = 'tense' | 'neutral' | 'revelatory' | 'urgent' | 'contemplative';
+export type SceneMood =
+  | 'tense'
+  | 'neutral'
+  | 'revelatory'
+  | 'urgent'
+  | 'contemplative';
 
 export interface AnimationScene {
-  sceneId: string;
-  duration: number;              // seconds
-  narration: string;             // ElevenLabs script for this scene
-  voiceCues: string[];           // RISE/PEAK/DROP/WARM/QUESTION/PIVOT/PAUSE/BREATH/EMPHASIS
-  visualType: AnimationVisualType;
-  tonyPrompt?: string;           // if TONY visual — natural language task description
-  wan2Prompt?: string;           // if ATMOSPHERE — Wan2.2 generation prompt
+  scene_id: string;
+  duration_seconds: number;           // seconds
+  narration_text: string;             // ElevenLabs script for this scene
+  voice_cues: string[];               // RISE/PEAK/DROP/WARM/QUESTION/PIVOT/PAUSE/BREATH/EMPHASIS
+  tony_visual_type: AnimationVisualType;
+  visual_description: string;         // natural language brief for TONY or Wan2.2
+  wan2_prompt?: string;               // only present if tony_visual_type = 'ATMOSPHERE'
   mood: SceneMood;
-  textOverlays?: string[];       // on-screen text lines TONY renders into the visual
-  dataPayload?: Record<string, unknown>; // structured data for charts/infographics
+  text_overlays?: string[];           // on-screen text lines TONY renders into the visual
+  data_payload?: Record<string, unknown>; // structured data for charts/infographics
 }
 
 export interface AnimationBlueprint {
   format: 'WHAT_IF' | 'CONSPIRACY' | 'ANIME_SERIES';
   title: string;
   hook: string;                  // first sentence of narration — must land before 0:30
-  totalDuration: number;         // seconds
+  total_duration_seconds: number;
   scenes: AnimationScene[];
 
   // Metadata for downstream steps
   faceless: true;                // always true — signals pipeline to skip SkyReels
-  tonyTaskCount: number;         // count of TONY visual scenes
-  wan2TaskCount: number;         // count of ATMOSPHERE scenes
-  dominantMood: SceneMood;       // overall emotional register for the video
-  retentionWallNotes: {
+  tony_task_count: number;       // count of TONY visual scenes
+  wan2_task_count: number;       // count of ATMOSPHERE scenes
+  dominant_mood: SceneMood;      // overall emotional register for the video
+  retention_wall_notes: {
     wall1?: string;              // 0:30 — hook + pre-commitment
     wall2?: string;              // 1:00 — first payoff
     midpoint?: string;           // midpoint re-hook
@@ -218,156 +254,21 @@ export interface AnimationBlueprint {
 }
 ```
 
-### AnimationBlueprint — Example Output
-
-WHAT_IF format, 10-minute video, 8 scenes illustrated:
-
-```json
-{
-  "format": "WHAT_IF",
-  "title": "What If China Attacked the US Power Grid Tomorrow",
-  "hook": "At 3:47am Eastern, the lights go out. Not in one city. In all of them.",
-  "totalDuration": 612,
-  "faceless": true,
-  "tonyTaskCount": 6,
-  "wan2TaskCount": 2,
-  "dominantMood": "tense",
-  "retentionWallNotes": {
-    "wall1": "Hook lands at 0:18 — dark cityscape atmosphere + title card. Pre-commitment: 'We ran this scenario through real infrastructure data.'",
-    "wall2": "First payoff at 0:55 — INFOGRAPHIC showing actual grid interdependency map.",
-    "midpoint": "Re-hook at 5:10 — 'But here's what the models missed.' PIVOT cue + new MAP_ANIMATION.",
-    "wall4": "Final tease at 8:30 — 'One country has already run a live test of this. It wasn't China.'"
-  },
-  "scenes": [
-    {
-      "sceneId": "scene_01",
-      "duration": 28,
-      "narration": "At 3:47am Eastern, the lights go out. Not in one city. In all of them. [PAUSE — 1.8s] Power grids in 14 states drop simultaneously. Every hospital on backup. Every traffic system dark. [RISE] And it takes the US government six minutes to confirm what happened.",
-      "voiceCues": ["PAUSE — 1.8s", "RISE"],
-      "visualType": "TITLE_CARD",
-      "tonyPrompt": "Animated title sequence. Dark background, deep charcoal to black gradient. Bold white text fades in: 'WHAT IF CHINA ATTACKED THE US POWER GRID TOMORROW'. Amber amber accent lines animate in from left. Subtle pulse effect on text. Cinematic, urgent. 1920x1080.",
-      "mood": "tense",
-      "textOverlays": ["WHAT IF CHINA ATTACKED THE US POWER GRID TOMORROW"]
-    },
-    {
-      "sceneId": "scene_02",
-      "duration": 45,
-      "narration": "[PEAK] Here is what the US power grid actually looks like. [DROP] Three interconnected regions. 3,000 utilities. 200,000 miles of high-voltage transmission lines — and 9 critical substations that, if taken offline, would affect 80% of all electricity delivery in the continental United States.",
-      "voiceCues": ["PEAK", "DROP"],
-      "visualType": "MAP_ANIMATION",
-      "tonyPrompt": "Animated US map using d3-geo. Show three grid regions: Western Interconnection, Eastern Interconnection, ERCOT. Animate transmission lines appearing as amber threads. Pulse 9 critical substations as red dots with concentric rings. Dark background. Legend bottom left. Data-driven, not decorative.",
-      "mood": "tense",
-      "dataPayload": {
-        "regions": ["Western Interconnection", "Eastern Interconnection", "ERCOT"],
-        "criticalNodes": 9,
-        "transmissionMiles": 200000,
-        "utilities": 3000
-      }
-    },
-    {
-      "sceneId": "scene_03",
-      "duration": 18,
-      "narration": "[RISE] That is the vulnerability map. [PAUSE — 1.0s] And Chinese state hackers have had access to US grid networks since at least 2023. That is not speculation. That is the FBI.",
-      "voiceCues": ["RISE", "PAUSE — 1.0s"],
-      "visualType": "QUOTE_CARD",
-      "tonyPrompt": "Styled quote card. Dark background. Large amber quotation marks top left. Source: 'FBI Director Christopher Wray, Congressional Testimony, 2024'. Bold white quote text. Subtle paper texture. Reveal animation — text appears word by word, left to right.",
-      "mood": "revelatory",
-      "textOverlays": ["\"Chinese hackers are pre-positioning on American infrastructure.\"", "— FBI Director Christopher Wray, 2024"]
-    },
-    {
-      "sceneId": "scene_04",
-      "duration": 72,
-      "narration": "[PIVOT] So what actually happens in the first 48 hours? [BREATH] First six hours: hospitals exhaust generator fuel. Most hospital backup systems are designed for 72 hours — but generator fuel delivery is a road transport problem, and road transport depends on traffic lights, fuel pumps, and communication networks. All of which require electricity.",
-      "voiceCues": ["PIVOT", "BREATH"],
-      "visualType": "TIMELINE",
-      "tonyPrompt": "Animated timeline. Horizontal axis: 0 hours to 48 hours. Each time marker appears with a connecting line and event card. Events: 0h — Grid down. 1h — Emergency generators activate nationwide. 6h — Fuel supply chain breaks. 12h — Hospital critical patients at risk. 24h — Water treatment halts (electric pumps). 48h — Civil unrest signals. Dark background, amber timeline line, white text cards. Animate each event card appearing sequentially.",
-      "mood": "urgent",
-      "dataPayload": {
-        "timelineEvents": [
-          { "hour": 0, "event": "Grid down — 14 states" },
-          { "hour": 1, "event": "Emergency generators activate" },
-          { "hour": 6, "event": "Fuel supply chain breaks" },
-          { "hour": 12, "event": "Hospital critical patients at risk" },
-          { "hour": 24, "event": "Water treatment halts" },
-          { "hour": 48, "event": "Civil unrest signals emerge" }
-        ]
-      }
-    },
-    {
-      "sceneId": "scene_05",
-      "duration": 30,
-      "narration": "The economic cost models are stark. [PEAK] A 24-hour nationwide outage costs the US economy between 243 and 480 billion dollars. That is one day. The record longest blackout in US history lasted 11 days.",
-      "voiceCues": ["PEAK"],
-      "visualType": "STAT_CALLOUT",
-      "tonyPrompt": "Bold stat callout card. Large number '$243B–$480B' in amber, animated counting up from zero. Sub-label: 'Cost of a single 24-hour nationwide outage'. Below: secondary stat 'Record US blackout: 11 days' in smaller white text. Dark card background, subtle grid lines. Cinematic card shadow.",
-      "mood": "urgent",
-      "dataPayload": {
-        "costLow": 243000000000,
-        "costHigh": 480000000000,
-        "recordBlackoutDays": 11
-      }
-    },
-    {
-      "sceneId": "scene_06",
-      "duration": 40,
-      "narration": "[WARM] Here is the part that gets genuinely complicated. The US has the ability to retaliate against Chinese digital infrastructure immediately. But a retaliatory cyberattack on Chinese grid systems would affect 1.4 billion people — most of them civilians. [QUESTION] How do you calibrate a proportional response to an invisible attack?",
-      "voiceCues": ["WARM", "QUESTION"],
-      "visualType": "COMPARISON_CHART",
-      "tonyPrompt": "Side-by-side comparison. Left panel: US grid — population affected 330M, recovery time estimate 11-21 days, backup infrastructure rating 'partial'. Right panel: China grid — population affected 1.4B, recovery time estimate unknown, backup infrastructure rating 'hardened regional'. Amber dividing line. Both panels animate in from centre. Bold headers, clean data rows.",
-      "mood": "contemplative",
-      "dataPayload": {
-        "usPopulation": 330000000,
-        "chinaPopulation": 1400000000
-      }
-    },
-    {
-      "sceneId": "scene_07",
-      "duration": 55,
-      "narration": "[ATMOSPHERE] The reality of a long-term blackout is not cinematic. It is quiet, slow, and deeply ordinary — people managing without refrigeration, without heat in winter, without the infrastructure that makes modern cities function.",
-      "voiceCues": [],
-      "visualType": "ATMOSPHERE",
-      "wan2Prompt": "Dark city at night with no lights. Streets empty. Candles visible in apartment windows. Overcast sky, cold blue moonlight. Cinematic wide shot. No people visible. Still, quiet, eerie. 720p.",
-      "mood": "contemplative"
-    },
-    {
-      "sceneId": "scene_08",
-      "duration": 62,
-      "narration": "[RISE] The most likely outcome, based on the Volt Typhoon precedent and current US infrastructure hardening timelines: a targeted attack on 3-4 key substations. [PEAK] Not a total blackout — a demonstration. A message. [DROP] The question is whether the US response treats it as an act of war or an intelligence operation. [PAUSE — 2.0s] [WARM] That distinction determines the next decade.",
-      "voiceCues": ["RISE", "PEAK", "DROP", "PAUSE — 2.0s", "WARM"],
-      "visualType": "INFOGRAPHIC",
-      "tonyPrompt": "Scenario probability infographic. Three horizontal bars labelled: 'Full nationwide attack', 'Targeted substation strike (3-4 nodes)', 'Intelligence positioning only'. Probability bars animate left to right: 8%, 67%, 25%. Amber bars on dark background. Title: 'Most Likely Scenario'. Source note bottom: 'Based on Volt Typhoon infrastructure access patterns, 2023-2025'. Clean, data-driven.",
-      "mood": "neutral",
-      "dataPayload": {
-        "scenarios": [
-          { "label": "Full nationwide attack", "probability": 0.08 },
-          { "label": "Targeted substation strike (3-4 nodes)", "probability": 0.67 },
-          { "label": "Intelligence positioning only", "probability": 0.25 }
-        ]
-      }
-    }
-  ]
-}
-```
-
----
-
-## TONY Prompt Contract for AnimationBlueprint
-
-TONY receives `tonyPrompt` from each scene's blueprint entry exactly as written.
-Muse owns the prompt. TONY does not improvise on it.
+### AnimationBlueprint — Muse Prompt Rules
 
 ```
-Rules Muse follows when writing tonyPrompt:
+Rules Muse follows when writing visual_description:
   Always specify dimensions (1920x1080 unless noted otherwise)
   Always specify background (dark unless noted otherwise)
   Always specify animation direction (left to right, fade, count-up, etc.)
   Always specify colour for key elements (amber accents, white text)
   Never say "make it look good" — describe the exact output
-  Always include dataPayload keys so TONY can reference real numbers
+  Always include data_payload keys so TONY can reference real numbers
+  wan2_prompt only present on ATMOSPHERE scenes — not on TONY scenes
 
-Rules TONY follows when receiving tonyPrompt:
-  tonyPrompt is the design brief — execute it, do not interpret it
-  If dataPayload is present, use the numbers from it — not approximations
+Rules TONY follows when receiving visual_description:
+  visual_description is the design brief — execute it, do not interpret it
+  If data_payload is present, use the numbers from it — not approximations
   Output: PNG for static, MP4 for animated (per beat)
   Resolution: 1920x1080 unless Muse specifies otherwise
   Max retry: 3 (Haiku regenerates code on failure, Vera QA inline)
@@ -375,204 +276,302 @@ Rules TONY follows when receiving tonyPrompt:
 
 ---
 
-## Confidence Score System
+## Pre-Production Sprint Council
 
-Before a user commits to a niche + mode combination, the system calls
-Bedrock Haiku to evaluate and return a confidence score (0–100).
+The sprint council fires BEFORE any production spend is committed.
+No EC2 instance launches — no ElevenLabs credits are used — until
+the sprint council clears the video.
 
-This is NOT hardcoded. Haiku genuinely evaluates the specific combination
-against seven dimensions. The same niche can score differently depending
-on which other niches it is paired with and what mode is selected.
+This is not a quality gate on output. It is a pre-spend confidence
+evaluation on the topic, angle, and format selection. It costs
+fractions of a cent (Haiku calls only) and prevents wasting $0.52
+on a video that should never have been greenlit.
 
-### Seven Evaluation Dimensions
+### Composite Confidence Score
+
+Six dimensions are scored and weighted into a single composite score (0–100).
 
 ```
-1. Content producibility (0–20 pts)
-   Can TONY + Wan2.2 handle this niche's visual requirements?
-   Is the content data-driven or does it require faces/reactions?
-   High score: AI, Finance, Science (data-heavy, animation-native)
-   Low score:  Beauty (requires human demonstration), Gaming (gameplay footage)
+Rex confidence score           20%
+  Rex's internal confidence on the topic opportunity.
+  Source: rex-watchlist DynamoDB record for this topic.
+  High: strong signal, low maturity, channel-fit confirmed.
+  Low: weak signal, saturated window, low channel-fit.
 
-2. Niche-mode fit (0–20 pts)
-   Does faceless actually work for this content type?
-   Investigative, educational, and speculative content: high fit
-   Reaction, commentary, and personality-driven content: low fit
+Regum fit score                20%
+  Does this topic fit the channel's content calendar and niche balance?
+  Source: Regum Sonnet call with channel-settings + recent upload history.
+  High: complements recent uploads, within locked niche, on-schedule.
+  Low: too similar to recent video, outside niche, poor calendar slot.
 
-3. Market saturation (0–15 pts)
-   How crowded is this niche right now on YouTube?
-   Checked against Oracle CONTENT_TREND_SIGNALS knowledge base
-   Low saturation = higher score
+Qeon producibility score       15%
+  Can the pipeline produce this topic in full faceless mode?
+  Source: Haiku evaluation of topic against AnimationBlueprint feasibility.
+  High: data-driven topic, TONY can visualise it, strong b-roll candidates.
+  Low: requires human footage, real faces, or demonstrations TONY cannot render.
 
-4. Cross-niche coherence (0–15 pts)
-   Do the selected niches make sense on one channel?
-   Shared audience, overlapping CPM advertisers, consistent editorial voice
-   AI + Finance = high coherence
-   Beauty + Gaming = low coherence
+Script quality score           25%
+  Quality and originality of the script brief relative to existing YouTube content.
+  Source: Haiku evaluation of script brief against Oracle CONTENT_TREND_SIGNALS.
+  High: fresh angle, specific premise, strong hook candidate.
+  Low: generic angle, indistinct from existing top-10 results, weak hook.
 
-5. AI detection risk (0–15 pts)
-   How likely is YouTube to flag this niche + mode combo?
-   Channels with high data visualisation diversity score well
-   Channels with repetitive templates or low content variation score poorly
-   Higher score = lower risk
+The Line synthesis score       10%
+  Does the full brief hold together as a cohesive video?
+  Source: The Line Sonnet call evaluating all inputs together.
+  High: consistent narrative, format matches topic, tone consistent.
+  Low: format mismatch, contradictory signals from agents, incoherent premise.
 
-6. Revenue potential (0–10 pts)
-   CPM estimates per niche (from Oracle GEO_MARKET_INTELLIGENCE)
-   Finance and Tech: high CPM, high score
-   Entertainment and Gaming: lower CPM, lower score
-
-7. Audience overlap (0–5 pts)
-   Do the selected audiences overlap or fragment?
-   High overlap = more efficient subscriber compounding
-   Low overlap = fragmented channel, lower retention
+Oracle alignment score         10%
+  Does this topic align with what Oracle's current knowledge base shows
+  is performing in this niche?
+  Source: Oracle Bedrock KB query on topic + niche + format.
+  High: Oracle confirms format works in niche, topic resonates with audience.
+  Low: Oracle sees no evidence this format works here, or topic is oversaturated.
 ```
 
-### Confidence Score API Call
+### Score Ranges and Decisions
+
+```
+90–100   SHIP            Clear for production. No notes required.
+75–89    SHIP_WITH_NOTES Clear for production. Council notes attached to job.
+60–74    SHIP_WITH_WARNINGS  Production allowed. Specific warnings logged.
+                            Vera QA threshold increased for this video.
+40–59    SPRINT_LOOP     Sent back to Rex + Regum for topic/angle revision.
+                         One revision cycle allowed. If score still < 60 —
+                         escalate to user per CONFIDENCE_SCORE policy.
+ 0–39    ABORT           Topic and angle are not viable. Job aborted.
+                         Zeus writes episode to memory. Rex updates watchlist.
+                         No user notification unless user is manually watching.
+```
+
+### TypeScript Interface
 
 ```typescript
-// lib/full-rrq/confidence-score.ts
+// lib/full-rrq/sprint-council.ts
 
-export interface NicheModeSelection {
-  niches: { nicheId: string; label: string; mode: 'FACE' | 'FACELESS' | 'LET_RRQ' }[];
+export type SprintCouncilVerdict =
+  | 'SHIP'
+  | 'SHIP_WITH_NOTES'
+  | 'SHIP_WITH_WARNINGS'
+  | 'SPRINT_LOOP'
+  | 'ABORT';
+
+export interface SprintCouncilScore {
+  rex_confidence: number;           // 0–20
+  regum_fit: number;                // 0–20
+  qeon_producibility: number;       // 0–15
+  script_quality: number;           // 0–25
+  the_line_synthesis: number;       // 0–10
+  oracle_alignment: number;         // 0–10
+  composite: number;                // 0–100 weighted total
+  verdict: SprintCouncilVerdict;
+  notes: string[];                  // agent-specific notes attached to job
+  warnings: string[];               // specific warnings for SHIP_WITH_WARNINGS
+  evaluatedAt: string;              // ISO timestamp
+}
+
+export interface SprintCouncilResult {
+  jobId: string;
+  score: SprintCouncilScore;
+  proceedToProduction: boolean;
+  abortReason?: string;
+  revisionInstruction?: string;     // present when verdict = SPRINT_LOOP
+}
+```
+
+### Sprint Council Flow
+
+```
+┌─────────────────────────────────────────────────────┐
+│                 SPRINT COUNCIL FIRES                 │
+│        (after script brief, before EC2 launch)       │
+└────────────────────────┬────────────────────────────┘
+                         │
+                         ▼
+             ┌───────────────────────┐
+             │  Six scores computed  │
+             │  in parallel (Haiku)  │
+             └──────────┬────────────┘
+                        │
+                        ▼
+             ┌───────────────────────┐
+             │  The Line synthesises │
+             │  composite score      │
+             └──────────┬────────────┘
+                        │
+          ┌─────────────┼──────────────┐
+          │             │              │
+    90–100 / 75–89    60–74         40–59 / 0–39
+          │             │              │
+          ▼             ▼              ▼
+       SHIP          SHIP WITH    SPRINT_LOOP or ABORT
+    production       WARNINGS     (no EC2 launched)
+       begins        production
+       now           begins now
+                     (Vera QA
+                     threshold ↑)
+```
+
+---
+
+## SENTINEL Integration
+
+SENTINEL is active only in autonomous Full RRQ mode. It is not active
+in manual pipeline runs.
+
+```
+SENTINEL monitors:
+  All Inngest workflow steps for the active Full RRQ job
+  Lambda invocation failures (TONY, visual-gen, audio-gen, av-sync)
+  EC2 spot instance status (Wan2.2) — spot reclaim, timeout, exit codes
+  DynamoDB write failures on job state transitions
+  ElevenLabs API response codes — 429, 5xx
+  YouTube Data API upload errors
+
+SENTINEL's retry policy (before escalation):
+  Lambda invocation failure     Retry up to 2 times with 30s backoff
+  EC2 spot reclaim              Relaunch Wan2.2 instance once (same job payload)
+  ElevenLabs 429                Rotate to next account (4 accounts available)
+  ElevenLabs 5xx                Fallback to Edge-TTS for this video
+  YouTube upload error          Retry up to 3 times with exponential backoff
+
+SENTINEL escalation path:
+  If retry succeeds             Log to DynamoDB + Comms. No user notification.
+  If retry fails                Fire SNS topic + write to notifications table.
+                                User receives in-app + email per escalation policy.
+                                Zeus evaluates before user is contacted.
+
+SENTINEL does NOT:
+  Override Zeus escalation decisions
+  Retry quality gate failures (those are handled by universal escalation)
+  Contact the user directly — always routes through Zeus + notification system
+```
+
+```typescript
+// lib/full-rrq/sentinel.ts
+
+export type SentinelEvent =
+  | 'LAMBDA_FAILURE'
+  | 'EC2_SPOT_RECLAIM'
+  | 'ELEVENLABS_RATE_LIMIT'
+  | 'ELEVENLABS_ERROR'
+  | 'YOUTUBE_UPLOAD_FAILURE'
+  | 'DYNAMO_WRITE_FAILURE'
+  | 'INNGEST_STEP_TIMEOUT';
+
+export interface SentinelAlert {
+  alertId: string;
+  jobId: string;
+  event: SentinelEvent;
+  component: string;            // e.g. "audio-gen", "wan2-instance", "uploader"
+  errorMessage: string;
+  retryAttempt: number;         // 0 = first failure, 1 = after first retry, etc.
+  retrySucceeded: boolean;
+  escalatedToZeus: boolean;
+  escalatedAt?: string;
+  resolvedAt?: string;
+}
+
+export async function sentinelRetry(
+  alert: SentinelAlert,
+  retryFn: () => Promise<void>,
+): Promise<void> {
+  try {
+    await retryFn();
+    alert.retrySucceeded = true;
+    await logSentinelAlert({ ...alert, resolvedAt: new Date().toISOString() });
+  } catch (err) {
+    alert.retrySucceeded = false;
+    await logSentinelAlert(alert);
+    await escalate('SENTINEL_RETRY_FAILED', alert.jobId, [], {
+      userId: await getUserIdFromJob(alert.jobId),
+      videoTitle: await getVideoTitleFromJob(alert.jobId),
+      videoId: alert.jobId,
+      stepContext: { alert },
+    });
+  }
+}
+```
+
+---
+
+## Series State Machine (WHAT_IF + CONSPIRACY)
+
+WHAT_IF and CONSPIRACY are not necessarily one-off videos. Rex monitors
+audience signals after every video to determine whether a follow-up is
+warranted. Oracle decides whether to continue, expand, or close a narrative
+thread.
+
+```
+Rex monitors per video (24hr + 7-day windows):
+  "what happened next?" comment volume
+  Search traffic for follow-up queries on the same topic
+  Retention at the 80% mark (indicates appetite for more)
+  Community post engagement on related threads
+
+Oracle arc decision types:
+  CONTINUE          Strong signals — follow-up video warranted
+  EXPAND            Audience engaging with a sub-topic — dedicated video on that angle
+  CLOSE             Topic has resolved or audience appetite is exhausted
+  SPIN_OFF_SERIES   Persistent signal across 3+ videos — elevate to recurring format
+
+Regum executes:
+  Writes nextEpisodeBrief to series-registry if CONTINUE or EXPAND
+  Updates currentArc field
+  Schedules follow-up in regum-schedule
+  Broadcasts arc decision in Comms
+```
+
+```typescript
+// lib/full-rrq/series-state.ts
+
+export type ArcDecision =
+  | 'CONTINUE'
+  | 'EXPAND'
+  | 'CLOSE'
+  | 'SPIN_OFF_SERIES';
+
+export interface SeriesEntry {
+  seriesId: string;
   channelId: string;
   userId: string;
-}
-
-export interface ConfidenceScoreResult {
-  overall: number;                    // 0–100 composite
-  label: 'STRONG' | 'SOLID' | 'CAUTION' | 'RETHINK';
-  perNiche: {
-    nicheId: string;
-    score: number;
-    modeNote: string;                 // one sentence on mode fit for this niche
+  format: 'WHAT_IF' | 'CONSPIRACY';
+  title: string;
+  premise: string;
+  episodeCount: number;
+  currentArc: string;
+  nextEpisodeBrief: string;
+  audienceSignals: {
+    signal: string;
+    source: 'COMMENTS' | 'RETENTION' | 'SEARCH' | 'COMMUNITY_POST';
+    weight: number;
+    capturedAt: string;
   }[];
-  dimensionBreakdown: {
-    contentProducibility: number;
-    nicheModefit: number;
-    marketSaturation: number;
-    crossNicheCoherence: number;
-    aiDetectionRisk: number;
-    revenuePotential: number;
-    audienceOverlap: number;
-  };
-  reasoning: string;                  // 2-3 sentences — Haiku's plain English assessment
-  risks: string[];                    // specific risks flagged
-  suggestions: string[];              // specific improvement suggestions
-  evaluatedAt: string;                // ISO timestamp
-  ttl: number;                        // unix seconds — 24h from evaluation
-}
-
-export async function evaluateConfidenceScore(
-  selection: NicheModeSelection,
-): Promise<ConfidenceScoreResult> {
-
-  // Query Oracle for current niche signal context
-  const nicheContext = await queryOracleKnowledge(
-    `Current market saturation, CPM, and growth velocity for:
-     ${selection.niches.map(n => n.label).join(", ")}`,
-    "CONTENT_TREND_SIGNALS"
-  );
-
-  const cpmContext = await queryOracleKnowledge(
-    `CPM ranges for ${selection.niches.map(n => n.label).join(", ")}
-     in US market`,
-    "GEO_MARKET_INTELLIGENCE"
-  );
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "anthropic.claude-haiku-4-5-20251001",  // Haiku — fast structured evaluation
-      max_tokens: 800,
-      system: `You are the RRQ confidence scoring engine. A user is selecting
-               niches and production modes for an autonomous YouTube channel.
-               Your job: evaluate their combination across 7 specific dimensions
-               and return a precise confidence score. Be honest — if something
-               is a bad combination, say so. Use the Oracle context provided
-               for real current data. Do not fabricate market signals.
-               Oracle niche context: ${nicheContext}
-               Oracle CPM context: ${cpmContext}`,
-      messages: [{
-        role: "user",
-        content: `Evaluate this niche and mode selection for a faceless
-                  animated YouTube channel:
-
-Niches + modes: ${JSON.stringify(selection.niches)}
-
-Score each dimension (max points in parentheses):
-1. Content producibility (0-20): Can TONY + Wan2.2 handle these niches?
-2. Niche-mode fit (0-20): Does faceless work for these content types?
-3. Market saturation (0-15): How crowded is this space right now?
-4. Cross-niche coherence (0-15): Do these niches make sense together?
-5. AI detection risk (0-15): Risk of YouTube flagging — higher score = lower risk.
-6. Revenue potential (0-10): CPM estimates.
-7. Audience overlap (0-5): Do the audiences compound or fragment?
-
-Return JSON exactly:
-{
-  "overall": number,
-  "label": "STRONG|SOLID|CAUTION|RETHINK",
-  "perNiche": [{ "nicheId": string, "score": number, "modeNote": string }],
-  "dimensionBreakdown": {
-    "contentProducibility": number,
-    "nicheModefit": number,
-    "marketSaturation": number,
-    "crossNicheCoherence": number,
-    "aiDetectionRisk": number,
-    "revenuePotential": number,
-    "audienceOverlap": number
-  },
-  "reasoning": string,
-  "risks": string[],
-  "suggestions": string[]
-}`
-      }]
-    })
-  });
-
-  const data = await response.json();
-  const result = JSON.parse(
-    data.content[0].text.replace(/```json|```/g, "").trim()
-  );
-
-  const now = Math.floor(Date.now() / 1000);
-  const scored: ConfidenceScoreResult = {
-    ...result,
-    evaluatedAt: new Date().toISOString(),
-    ttl: now + 60 * 60 * 24,   // 24h TTL
-  };
-
-  // Cache result per channel
-  await cacheConfidenceScore(selection.channelId, scored);
-
-  return scored;
+  arcHistory: string[];
+  status: 'ACTIVE' | 'ON_HOLD' | 'CONCLUDED' | 'COMING_SOON';
+  createdAt: string;
+  lastEpisodePublishedAt?: string;
 }
 ```
 
-### Confidence Score Labels
+### DynamoDB Table: series-registry
 
 ```
-STRONG    85–100    Excellent combination. Faceless mode is well-suited.
-                    Go ahead.
-
-SOLID     65–84     Good combination with manageable trade-offs.
-                    Minor risks noted below.
-
-CAUTION   45–64     This will work but has real weaknesses.
-                    Read the risks before committing.
-
-RETHINK   0–44      Significant problems with this combination.
-                    Strong recommendation to adjust before launching.
-```
-
-### DynamoDB Cache Table
-
-```
-channel-confidence
-  PK: channelId
-  fields: overall, label, perNiche[], dimensionBreakdown{},
-          reasoning, risks[], suggestions[], evaluatedAt, ttl
-  TTL: 24 hours (re-evaluate anytime via [Re-evaluate] button)
+PK:  seriesId           e.g. "series_whif_001"
+GSI: channelId, userId, status, format
+fields:
+  seriesId, channelId, userId
+  format                WHAT_IF | CONSPIRACY
+  title                 Series/topic title
+  premise               2–3 sentence premise summary
+  episodeCount          total episodes published
+  currentArc            active narrative thread
+  nextEpisodeBrief      what happens in the next episode (null if CONCLUDED)
+  audienceSignals[]     Rex signal objects with source + weight
+  arcHistory[]          past arc names for continuity reference
+  status                ACTIVE | ON_HOLD | CONCLUDED | COMING_SOON
+  createdAt, lastEpisodePublishedAt
 ```
 
 ---
@@ -610,20 +609,28 @@ User must actively confirm before Full RRQ fires.
 │                                                                   │
 │  Locked niche:        AI · Finance                                │
 │  Production mode:     Faceless (TONY + Wan2.2)                    │
+│  SENTINEL:            Active (autonomous mode)                    │
 │  Upload frequency:    2 videos / week (Regum scheduling)          │
 │                                                                   │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
-│  CONFIDENCE SCORE                           Last evaluated: 3h ago│
+│  SPRINT COUNCIL SCORE                                             │
 │                                                                   │
-│  87 / 100 — STRONG                                                │
-│  ██████████████████████████████████████████████████████░░░░      │
+│  Evaluated per-video before production begins.                    │
+│  Score below 60: topic sent back for revision.                    │
+│  Score below 40: topic aborted. No spend committed.              │
 │                                                                   │
-│  "AI + Finance in faceless mode is a well-matched combination.    │
-│   Data-heavy content plays to TONY's strengths. CPM is strong     │
-│   across both niches. No coherence issues."                       │
+├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
-│  [Re-evaluate]                                                    │
+│  IMPORTANT                                                        │
+│                                                                   │
+│  This mode runs fully autonomously. RRQ will:                     │
+│    · Select topics without asking you first                       │
+│    · Spend ~$0.52 per video on AWS + ElevenLabs                  │
+│    · Upload directly to your YouTube channel                      │
+│    · Notify you only when a job fails or is stuck                 │
+│                                                                   │
+│  To stop: return here and click [PAUSE FULL RRQ] at any time.    │
 │                                                                   │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
@@ -639,18 +646,17 @@ Format radio buttons:
   WHAT_IF, CONSPIRACY, LET_RRQ_DECIDE — all selectable
   ANIME_SERIES — disabled state, strikethrough label, "Coming Soon" chip
 
-Confidence score display:
-  Score bar animates in left to right when modal opens (300ms GSAP)
-  Colour: green 75+, amber 50-74, red below 50
-  "Re-evaluate" triggers a new Haiku evaluation call (spinner during load)
-  Score cached 24h — shown freshness timestamp
-
 [LAUNCH FULL RRQ] button:
-  Amber, full width of the right column
+  Amber, full width of right column
   GSAP cinematic sweep animation on click before firing (same as GO RRQ button)
-  Disabled if confidence score is loading
+  Disabled if channel is OPEN (shows: "Switch to a locked niche to enable")
 
 [Cancel] — text link, no button styling, right-aligned
+
+[PAUSE FULL RRQ] button:
+  Shown in Zeus Command Center after Full RRQ is active
+  Amber outline (not filled), stops autonomous job queue
+  Does not abort in-progress jobs — lets current job finish, pauses queue
 ```
 
 ### Modal State Machine
@@ -661,13 +667,41 @@ Confidence score display:
 type ModalState =
   | 'REVIEWING'          // user reading, hasn't chosen format yet
   | 'FORMAT_SELECTED'    // format radio chosen
-  | 'EVALUATING'         // re-evaluate confidence score in progress
-  | 'READY'              // confidence score loaded, format selected
+  | 'READY'              // format selected, channel is niche-locked
   | 'LAUNCHING'          // [LAUNCH FULL RRQ] clicked, sweep animation running
   | 'LAUNCHED';          // GO RRQ event fired, modal closes
 
 // [LAUNCH FULL RRQ] button is enabled only in state: FORMAT_SELECTED or READY
 // After LAUNCHED: Zeus Command Center live feed activates
+// After LAUNCHED: SENTINEL activates for the session
+```
+
+---
+
+## Production Stack
+
+```
+TONY Lambda
+  All AnimationBlueprint scenes where tony_visual_type ≠ 'ATMOSPHERE'
+  Remotion / D3 / Recharts / Nivo / Chart.js
+  Receives: visual_description, data_payload, text_overlays
+  Outputs: PNG (static) or MP4 (animated) per scene
+  Max 3 retries per scene — Haiku regenerates code on failure
+  Vera QA inline after each TONY batch
+
+Wan2.2 EC2 (g5.2xlarge spot)
+  All AnimationBlueprint scenes where tony_visual_type = 'ATMOSPHERE'
+  Receives: wan2_prompt, duration_seconds
+  Outputs: atmospheric b-roll MP4 per scene
+  SENTINEL monitors for spot reclaim — relaunches once on reclaim
+
+ElevenLabs (4-account rotation)
+  All narration_text fields from AnimationBlueprint scenes, in order
+  voice_cues markers processed by audio-gen Lambda
+  Edge-TTS fallback if ElevenLabs fails after account rotation exhausted
+
+SkyReels EC2
+  NEVER launched in Full RRQ mode.
 ```
 
 ---
@@ -677,17 +711,17 @@ type ModalState =
 Only the steps that differ are listed. All other steps run identically.
 
 ```
-STANDARD MODE             FACELESS MODE
-─────────────             ─────────────
+STANDARD MODE             FACELESS MODE (Full RRQ)
+─────────────             ───────────────────────
 Step 1   Research         Step 1   Research (identical)
-Step 2   Script           Step 2   Script (identical)
+Step 2   Script           Step 2   Script → AnimationBlueprint (not MuseBlueprint)
 Step 3   SEO              Step 3   SEO (identical)
 Step 4   Quality Gate     Step 4   Quality Gate (identical)
-         Council                   Council (identical)
+         Council                   Sprint Council (new — fires before Step 5)
 Step 5   Audio            Step 5   Audio (identical — ElevenLabs unchanged)
 Step 6   SkyReels EC2     Step 6   SKIPPED — not launched, not billed
-Step 7   Wan2.2           Step 7   Wan2.2 — ATMOSPHERE beats only
-Step 8   TONY Lambda      Step 8   TONY Lambda — ALL visual beats
+Step 7   Wan2.2           Step 7   Wan2.2 — ATMOSPHERE scenes only
+Step 8   TONY Lambda      Step 8   TONY Lambda — ALL visual scenes
                                    (receives AnimationBlueprint scenes)
 Step 9   visual-gen       Step 9   visual-gen (Chart.js/Mermaid if any
                                    CHART/DIAGRAM beats remain)
@@ -715,17 +749,24 @@ const isFaceless = await resolveProductionMode(
 // 3. Returns boolean
 
 if (isFaceless) {
+  // Sprint council fires before production spend
+  const councilResult = await runSprintCouncil(brief, jobId);
+  if (!councilResult.proceedToProduction) {
+    await abortOrRevise(councilResult, brief, jobId);
+    return;
+  }
+
   // Muse generates AnimationBlueprint (not MuseBlueprint)
   const blueprint = await museFaceless(brief, research);
 
   // Step 6 is a no-op — SkyReels EC2 never launched
   // Step 8 maps AnimationBlueprint scenes → invokeTonyBatch() tasks
   const tonyTasks = blueprint.scenes
-    .filter(s => s.visualType !== 'ATMOSPHERE')
+    .filter(s => s.tony_visual_type !== 'ATMOSPHERE')
     .map(s => buildTonyTaskFromScene(s));
 
   const wan2Tasks = blueprint.scenes
-    .filter(s => s.visualType === 'ATMOSPHERE')
+    .filter(s => s.tony_visual_type === 'ATMOSPHERE')
     .map(s => buildWan2TaskFromScene(s));
 
   // Parallel execution — same Promise.allSettled() pattern
@@ -738,54 +779,27 @@ if (isFaceless) {
 
 ---
 
-## YouTube AI Detection Resistance
-
-Five signals YouTube monitors and how faceless mode addresses each.
+## What Gets Skipped in Faceless Mode — Definitive List
 
 ```
-1. Visual fingerprinting
-   What YouTube checks: identical composition, same template repeated across videos.
-   How we beat it:      TONY generates compositions from data + Haiku code-gen.
-                        Every video has a different data payload, different colour
-                        weight, different layout structure.
-                        No two videos share a visual template — they share code
-                        primitives that produce novel outputs.
+SkyReels EC2 instance launch    — never started, never billed
+Avatar selection                — no avatar ID on the job
+Avatar profile lookup           — not read
+FLUX portrait generation        — not triggered
+Presenter roster matching       — not run
+CharacterBrief lookup           — not read
 
-2. Audio fingerprinting
-   What YouTube checks: identical cadence, unnaturally uniform pacing.
-   How we beat it:      ElevenLabs voice cue markers (RISE/PEAK/DROP/WARM/PAUSE)
-                        create natural variation across videos.
-                        Muse writes different cue sequences per script.
-                        Voice is not robotic — it is directed.
-
-3. Metadata patterns
-   What YouTube checks: upload timing regularity, identical description structure.
-   How we beat it:      Regum scheduler uses controlled randomness on upload timing.
-                        ±3 hours from target slot, never on the exact minute.
-                        SEO metadata generated fresh per video by Haiku —
-                        never from a template.
-
-4. Content fingerprinting
-   What YouTube checks: semantic repetition — same topic structure video after video.
-   How we beat it:      Opus generates scripts from different research inputs.
-                        WHAT_IF and CONSPIRACY formats have structurally different
-                        tension curves (POSSIBILITY_ESCALATION vs COURTROOM).
-                        Rex enforces 72h topic cooldown to prevent same-topic repeats.
-
-5. Engagement velocity
-   What YouTube checks: artificially boosted early engagement signals.
-   How we beat it:      Organic growth only. RRQ never buys engagement.
-                        This is a channel quality problem — not our problem to solve
-                        technically. Build great content. Let it compound.
+Everything else runs identically.
 ```
 
-### Oracle Domain 11 — Pre-Upload AI Detection Check
+---
 
-Runs after Vera QA is cleared, before Theo uploads.
+## Oracle Domain 11 — Pre-Upload AI Detection Check
+
+Runs after Vera QA is cleared, before Theo uploads. Part of the Oracle
+domain spec — wired here for pipeline integration reference.
 
 ```typescript
-// Part of Oracle domain spec — not built yet, referenced here for pipeline wiring
-
 {
   id: "AI_DETECTION_RESISTANCE",
   name: "AI Detection Resistance Check",
@@ -803,54 +817,30 @@ Runs after Vera QA is cleared, before Theo uploads.
   onHold: "ESCALATE_PER_POLICY",
   escalationPolicy: {
     maxAttempts: 3,        // Muse revises visual layer, Qeon re-runs TONY tasks
-    onMaxExceeded: "ZEUS_NOTIFICATION",   // Zeus → human notification
+    onMaxExceeded: "ZEUS_NOTIFICATION",
   }
 }
 ```
 
 ---
 
-## Series Registry (ANIME_SERIES — Coming Soon)
+## DynamoDB Tables
 
-Table spec only. Do not build. Status: COMING_SOON.
+### series-registry (described in Series State Machine section above)
 
-```
-DynamoDB table: series-registry
-  PK: seriesId           e.g. "series_001"
-  fields:
-    title                 Series title
-    premise               2-sentence series premise
-    episodeCount          total episodes planned
-    currentArc            current story arc name
-    nextEpisodeBrief      what happens in the next episode
-    audienceSignals       [] — comments/signals from previous episodes
-    status                "COMING_SOON" — only valid status until LoRA pipeline is built
-    loraModelKey          null until funded phase
-    createdAt             ISO timestamp
-```
-
-The LoRA pipeline requires:
-- Fine-tuned LoRA weights per character (requires GPU training budget)
-- Consistent character reference images per episode
-- Wan2.2 or a dedicated video model for animated sequences
-- Story arc memory (Zeus episodic memory extended to series continuity)
-
-This is parked until funded phase. Do not wire it. Do not reference it
-outside the disclaimer modal "Coming Soon" display.
-
----
-
-## What Gets Skipped in Faceless Mode — Definitive List
+Full schema reference:
 
 ```
-SkyReels EC2 instance launch    — never started, never billed
-Avatar selection                — no avatar ID on the job
-Avatar profile lookup           — not read
-FLUX portrait generation        — not triggered
-Presenter roster matching       — not run
-CharacterBrief lookup           — not read
+series-registry
+  PK:  seriesId
+  GSI: channelId, userId, status, format
+  TTL: none — series records are permanent
 
-Everything else runs identically.
+channel-confidence (Full RRQ confidence score cache)
+  PK: channelId
+  fields: overall, label, perNiche[], dimensionBreakdown{},
+          reasoning, risks[], suggestions[], evaluatedAt, ttl
+  TTL: 24 hours — re-evaluate anytime via [Re-evaluate] button
 ```
 
 ---
@@ -871,26 +861,30 @@ ORACLE_AI_DETECTION_CHECK=true   # enable/disable per-video check
 
 ---
 
-## Build Order
+## Build Checklist
 
 ```
 [ ] Read muse/SKILL.md — AnimationBlueprint is a MUSE output
-[ ] Read tony/SKILL.md — tonyPrompt contract
+[ ] Read tony/SKILL.md — visual_description contract
 [ ] Read oracle/SKILL.md — Domain 11 spec wiring
+[ ] Read escalation/SKILL.md — SENTINEL escalation paths
 
 [ ] Create lib/full-rrq/ folder
-[ ] Create lib/full-rrq/confidence-score.ts     — Haiku 7-dimension evaluator
-[ ] Create lib/full-rrq/resolve-mode.ts         — FACE/FACELESS/LET_RRQ resolver
-[ ] Create lib/muse/animation-blueprint.ts      — AnimationBlueprint types + Muse generator
-[ ] Create lib/full-rrq/tony-from-scene.ts      — AnimationScene → TonyTask builder
-[ ] Create lib/full-rrq/wan2-from-scene.ts      — AnimationScene → Wan2Task builder
+[ ] Create lib/full-rrq/sprint-council.ts      — 6-dimension composite scorer
+[ ] Create lib/full-rrq/resolve-mode.ts        — FACE/FACELESS/LET_RRQ resolver
+[ ] Create lib/full-rrq/sentinel.ts            — SENTINEL retry + escalation
+[ ] Create lib/full-rrq/series-state.ts        — SeriesEntry type + arc decision logic
+[ ] Create lib/muse/animation-blueprint.ts     — AnimationBlueprint types + Muse generator
+[ ] Create lib/full-rrq/tony-from-scene.ts     — AnimationScene → TonyTask builder
+[ ] Create lib/full-rrq/wan2-from-scene.ts     — AnimationScene → Wan2Task builder
 
 [ ] Add AnimationBlueprint to shared lambda-types
 [ ] Add 'faceless' flag to production-jobs DynamoDB schema
+[ ] Add series-registry DynamoDB table
 [ ] Add channel-confidence DynamoDB table
-[ ] Add series-registry DynamoDB table (status: COMING_SOON — no logic wired)
 
 [ ] Update Qeon pipeline: detect faceless mode at job start
+[ ] Update Qeon: fire sprint council before Step 5 when faceless = true
 [ ] Update Qeon Step 6: no-op when faceless is true
 [ ] Update Qeon Step 8: route AnimationBlueprint scenes to Tony + Wan2 tasks
 
@@ -899,22 +893,28 @@ ORACLE_AI_DETECTION_CHECK=true   # enable/disable per-video check
 
 [ ] Wire Oracle Domain 11 per-video check after Vera QA clears
 [ ] Wire Domain 11 escalation policy (max 3 attempts → Zeus notification)
+[ ] Wire SENTINEL to Inngest step failures, Lambda errors, EC2 spot events
 
-[ ] Create components/zeus/FullRRQModal.tsx     — disclaimer modal + format picker
+[ ] Create components/zeus/FullRRQModal.tsx    — disclaimer modal + format picker
 [ ] Create components/settings/NicheModeSelector.tsx — per-niche mode toggle
-[ ] Add confidence score display to FullRRQModal
-[ ] Add confidence score re-evaluate call with loading state
+[ ] Add SENTINEL status indicator in Zeus Command Center live feed
+[ ] Add sprint council score display per job in Kanban
+
 [ ] Add ANIME_SERIES disabled state + "Coming Soon" chip in modal
 
 [ ] Test faceless pipeline end-to-end — verify SkyReels step is skipped
+[ ] Test sprint council — score below 40 aborts job before EC2 launches
+[ ] Test sprint council — score 40–59 triggers revision loop, not production
+[ ] Test SENTINEL retry — Lambda failure retried twice before escalation fires
+[ ] Test SENTINEL escalation — retry failure writes notification + routes to Zeus
 [ ] Test TONY task generation from AnimationBlueprint scenes
-[ ] Test confidence score evaluation — verify 7 dimensions score correctly
 [ ] Test LET_RRQ mode resolution — verify Haiku decides per-video
-[ ] Test modal state machine — all 6 states transition correctly
+[ ] Test modal state machine — all 5 states transition correctly
 [ ] Test WHAT_IF format AnimationBlueprint generation with Muse
 [ ] Test CONSPIRACY format AnimationBlueprint generation with Muse
-[ ] Verify Oracle context is injected into confidence score evaluation
+[ ] Verify Oracle context is injected into sprint council scoring
 [ ] Verify 72h topic cooldown is enforced in faceless mode (same dedup as standard)
 [ ] Verify Regum upload timing randomness applies in Full RRQ Mode
 [ ] Verify Oracle Domain 11 fires after Vera clears (not before)
+[ ] Verify niche-lock check blocks Full RRQ launch on OPEN channels
 ```

@@ -158,6 +158,28 @@ const ESCALATION_POLICIES: Record<string, EscalationPolicy> = {
     timeoutMs:          0,          // no timeout — waits for user
     autoDecision:       'APPROVE',  // approve = skip this candidate, move on
   },
+
+  // SENTINEL infrastructure alert — Autopilot Mode only
+  // Haiku retries first, then SNS + in-app if unresolved
+  SENTINEL_INFRASTRUCTURE: {
+    maxAttempts:        2,
+    degradedThreshold:  0.00,   // binary — component either works or doesn't
+    escalateTo:         'ZEUS_THEN_HUMAN',
+    notificationChannels: ['BOTH'],
+    timeoutMs:          3600000,   // 1 hour — infra alerts need faster response
+    autoDecision:       'ABORT',
+  },
+
+  // Sprint council score too low to proceed (Full RRQ pre-production)
+  // User decides whether to accept a low-confidence sprint or abort
+  SPRINT_COUNCIL_LOW: {
+    maxAttempts:        1,   // sprint council runs once — no retry
+    degradedThreshold:  0.40,
+    escalateTo:         'ZEUS_THEN_HUMAN',
+    notificationChannels: ['IN_APP'],
+    timeoutMs:          86400000,
+    autoDecision:       'ABORT',
+  },
 };
 ```
 
@@ -884,7 +906,9 @@ View finding → [link]
 [ ] Wire TONY_CODE_GEN → escalate()     replace ad-hoc retry logic
 [ ] Wire COUNCIL_DEADLOCK → escalate()  replace deadlock handler
 [ ] Wire AVATAR_APPROVAL → escalate()   new gate
-[ ] Wire CONFIDENCE_SCORE → escalate()  new gate (Rex)
+[ ] Wire CONFIDENCE_SCORE → escalate()         new gate (Rex)
+[ ] Wire SENTINEL_INFRASTRUCTURE → escalate()  new gate (Autopilot Mode)
+[ ] Wire SPRINT_COUNCIL_LOW → escalate()       new gate (Full RRQ pre-production)
 [ ] Inngest step pattern enforced       all attempts as named steps
 [ ] Comms broadcast on every event      all escalation events visible
 [ ] Notification bell in Mission Control header (unread count badge)
@@ -902,4 +926,30 @@ View finding → [link]
 [ ] Test isStuck() — oscillating scores detected correctly
 [ ] Test isStuck() — genuine improvement not flagged as stuck
 [ ] Verify no agent implements own retry loop outside escalate()
+[ ] Test SENTINEL_INFRASTRUCTURE → SNS fires in addition to EMAIL + IN_APP
+[ ] Test SPRINT_COUNCIL_LOW → no retry, user notified, auto-abort on timeout
 ```
+
+---
+
+## Autonomous Mode vs Manual Mode Escalation
+
+The escalation protocol applies universally. However, notification
+behaviour differs by mode:
+
+STUDIO MODE (Manual Pipeline):
+  All gates active.
+  User is watching — in-app notification is sufficient for most gates.
+  EMAIL only for COUNCIL_DEADLOCK and JOB_FAILED.
+
+REX MODE (Rex-Assisted Manual):
+  All gates active.
+  User triggered the job — same as Studio Mode.
+  SENTINEL does NOT activate (user is present).
+
+AUTOPILOT MODE (Full RRQ):
+  All gates active.
+  SENTINEL activates — monitors infrastructure in real time.
+  EMAIL + IN_APP for ALL stuck gates (user may not be watching).
+  AWS SNS added as third channel for SENTINEL_INFRASTRUCTURE HIGH severity.
+  SNS fires in addition to EMAIL + IN_APP — not instead of.
