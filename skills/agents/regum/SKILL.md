@@ -358,6 +358,121 @@ Shorts to long-form   → % of Short viewers who watch full video
 
 ---
 
+## Presenter Rotation
+
+Regum owns presenter selection for every video brief. Muse designs the character;
+Regum decides who appears on screen based on content fit, performance data, and
+rotation health. Regum collaborates with Muse on character briefs during onboarding —
+Regum provides strategic fit (niche, content type assignment) while Muse provides
+creative direction (personality, visual style).
+
+### Rotation Rules
+
+```
+NO CONSECUTIVE OVERUSE     No same presenter used 3x in a row.
+
+CONTENT TYPE FIT           Content type must match the presenter's
+                           contentAssignment.primaryTypes. Regum never
+                           assigns a presenter to a type they are not
+                           configured for.
+
+PERFORMANCE WEIGHTING      Regum weights selection by Zeus performance_scores
+                           per content type. Higher performing presenter for
+                           the given content type gets higher selection weight.
+
+CONTROLLED RANDOMNESS      20% controlled randomness applied — picks #2 over
+                           #1 occasionally to avoid algorithmic feel and keep
+                           the roster feeling varied to regular viewers.
+
+RECOVERY PERIOD            Any presenter used in the last 2 videos receives
+                           -50% weight. Not a hard block — still selectable
+                           if no eligible alternative exists — just deprioritised.
+```
+
+### Presenter Selection Function
+
+```typescript
+function selectPresenter(
+  brief: QeonBrief,
+  roster: AvatarProfile[],
+  recentHistory: string[] // last 5 presenterIds used
+): AvatarProfile {
+  // 1. Filter by content type fit
+  const eligible = roster.filter(p =>
+    p.contentAssignment.primaryTypes.includes(brief.contentType)
+  );
+
+  // 2. Apply recovery penalty (used in last 2 videos)
+  const withWeights = eligible.map(p => ({
+    presenter: p,
+    weight: recentHistory.slice(0, 2).includes(p.presenterId) ? 0.5 : 1.0
+  }));
+
+  // 3. Apply performance score
+  const scored = withWeights.map(p => ({
+    ...p,
+    weight: p.weight * (p.presenter.performanceScores[brief.contentType] ?? 0.5)
+  })).sort((a, b) => b.weight - a.weight);
+
+  // 4. 20% controlled randomness
+  return (Math.random() < 0.8 ? scored[0] : scored[1] ?? scored[0]).presenter;
+}
+```
+
+### Weekly Roster Health Checks
+
+Regum runs roster health checks every Sunday alongside the analytics review:
+
+```
+UNUSED PRESENTER FLAG
+  Any presenter unused for 14+ days → flag to Zeus.
+  Zeus decides whether to investigate, reassign content types, or retire.
+
+LOW PERFORMANCE ESCALATION
+  Any presenter with performance_score < 0.3 across 3+ content types
+  → escalate to Oracle Domain 10 for character brief review and
+    possible personality/visual direction update.
+
+ROTATION BALANCE CAP
+  No single presenter should exceed 60% of total videos in any
+  rolling 30-day window. If the cap is breached, that presenter's
+  weight is hard-capped at 0.2 until the ratio normalises.
+```
+
+```typescript
+async function runRosterHealthCheck(roster: AvatarProfile[]): Promise<void> {
+  const now = Date.now();
+  const thirtyDayVideos = await getVideoCountByPresenter(30);
+
+  for (const presenter of roster) {
+    // Unused flag
+    const daysSinceUsed = (now - presenter.lastUsedAt) / (1000 * 60 * 60 * 24);
+    if (daysSinceUsed >= 14) {
+      await flagToZeus("PRESENTER_UNUSED", { presenterId: presenter.presenterId, daysSinceUsed });
+    }
+
+    // Low performance escalation
+    const lowScoringTypes = Object.entries(presenter.performanceScores)
+      .filter(([, score]) => score < 0.3).length;
+    if (lowScoringTypes >= 3) {
+      await escalateToOracle("DOMAIN_10_CHARACTER_REVIEW", { presenterId: presenter.presenterId });
+    }
+  }
+
+  // Rotation balance cap
+  const totalVideos = Object.values(thirtyDayVideos).reduce((a, b) => a + b, 0);
+  for (const [presenterId, count] of Object.entries(thirtyDayVideos)) {
+    const ratio = totalVideos > 0 ? count / totalVideos : 0;
+    if (ratio > 0.6) {
+      await applyPresenterWeightCap(presenterId, 0.2);
+      await flagToZeus("PRESENTER_ROTATION_IMBALANCE", { presenterId, ratio });
+    }
+  }
+}
+```
+
+---
+
 ## Regum Performance Metrics (Zeus tracks these)
 
 ```

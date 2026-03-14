@@ -44,6 +44,9 @@ Phase 4+:  NOT STARTED
 ```
 Zeus, Rex, Regum, Qeon, ARIA, SNIPER, MUSE, ORACLE, THEO, JASON, VERA, THE LINE,
 TONY (new Phase 3.5 — code agent, MUSE's execution arm)
+
+Skill Systems (not agents — infrastructure-level):
+AVATAR-GEN (Phase 4d — FLUX.1 [dev] portrait generator, onboarding + roster expansion only)
 ```
 
 ### Token-Efficient Session Resumption
@@ -115,6 +118,7 @@ the full pipeline with zero human input. One button. Fully autonomous.
 | COLD START DEEP RESEARCH (24hr pre-launch sprint, index seeding) | `skills/cold-start-deep-research/SKILL.md` |
 | TONY (code agent — visuals, scrapers, reports, data) | `skills/tony/SKILL.md` |
 | VERA (QA & Standards agent — audio, visual, standards gate) | `skills/vera/SKILL.md` |
+| Avatar presenter roster + portrait generation | `skills/avatar-gen/SKILL.md` |
 | Data Harvest (Rex + ARIA) | `skills/data-harvest/SKILL.md` — includes 6 new intent-layer sources: Google Autocomplete, YouTube Suggestions, Reddit Trending, TikTok Creative Center, Google Keyword Planner, Polymarket |
 | Zeus agent | `skills/agents/zeus/SKILL.md` |
 | Rex agent | `skills/agents/rex/SKILL.md` |
@@ -151,7 +155,7 @@ AWS LAMBDA WORKERS
                       Renders Remotion MP4s, web scraping, data reports, custom visuals
                       Called by: MUSE (primary), REX, REGUM, ORACLE, QEON, ZEUS
 
-AWS EC2 — TWO GPU Instances (both spot, both per-job, both self-terminate)
+AWS EC2 — THREE GPU Instances (all spot, all self-terminate)
   avatar-gen          g5.12xlarge spot — SkyReels V2-I2V-14B-720P (4× A10G, 96GB VRAM)
                       Launches per job, self-terminates when done
                       Handles: TALKING_HEAD, SPLIT_SCREEN beats
@@ -159,6 +163,12 @@ AWS EC2 — TWO GPU Instances (both spot, both per-job, both self-terminate)
   broll-gen           g5.2xlarge spot — Wan2.2-T2V-A14B FP8 (1× A10G, 24GB VRAM)
                       Launches per job, self-terminates when done
                       Handles: B_ROLL, atmospheric video beats
+
+  avatar-portrait-gen g4dn.xlarge spot — FLUX.1 [dev] FP8 (1× T4, 16GB VRAM)
+                      Fires on channel onboarding + roster expansion only
+                      Self-terminates after portrait batch completes
+                      Per-batch cost: ~$0.15-0.25 (3-5 portraits)
+                      Steady state: near-zero (portraits reused forever via SkyReels)
 
   code-agent          Lambda — TONY (Haiku + Remotion/Recharts/D3/Nivo sandbox)
                       No EC2. No always-on. Fires instantly per job.
@@ -311,6 +321,7 @@ DynamoDB — Working Memory (real-time, milliseconds)
   cold-start-sprints      cold start deep research sprint records
   the-line-council-index  Bedrock Knowledge Base namespace (owned by The Line)
   channel-audit           onboarding channel identity audit results
+  avatar-profiles         Presenter roster — seed, config, performance scores, evolution history
 
 Note: user identity, email, and plan tier stored on Clerk publicMetadata.
 All DynamoDB user tables use Clerk userId as partition key.
@@ -420,7 +431,7 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 [ ] uploader        (YouTube main + Shorts + playlist + pin comment)
 ```
 
-### Phase 4 — EC2 GPU Instances + TONY Lambda
+### Phase 4 — EC2 GPU Instances + TONY Lambda (4a SkyReels / 4b Wan2.2 / 4c TONY / 4d FLUX Portrait)
 
 #### 4a — SkyReels V2 (Avatar / Talking Head)
 ```
@@ -454,6 +465,19 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 [ ] Test: THUMBNAIL_SRC beat → Vera QA → S3
 [ ] Test: fallback path — simplified retry → text card
 [ ] Verify Oracle Domain 9 package injection reaches TONY system prompt
+```
+
+#### 4d — FLUX.1 [dev] Portrait Generator (Avatar Roster)
+```
+[ ] Read skills/avatar-gen/SKILL.md completely first
+[ ] Create EC2 AMI: g4dn.xlarge + CUDA 12 + FLUX.1 [dev] FP8 + diffusers
+[ ] Muse character brief → FLUX prompt builder
+[ ] Seed locking mechanism (seed stored in avatar-profiles DynamoDB)
+[ ] Spot instance launch → portrait batch → S3 upload → self-terminate
+[ ] Human-in-loop approval gate (optional, off by default)
+[ ] Oracle Domain 10 wired (presenter performance analytics)
+[ ] Regum rotation logic: no 3x repeat, performance scoring, 20% randomness
+[ ] End-to-end test: channel onboarding → 4 portraits generated → roster approved → SkyReels animated
 ```
 
 ### Phase 5 — Memory + Agent Infrastructure
@@ -646,46 +670,25 @@ rrq-memory/
 
 ---
 
-## Avatar Personas + Portrait Prompts
+## Presenter Roster + Portrait Generation
 
-Generate once using any image tool (Midjourney, DALL-E, or manual photography), store in S3, reused every video forever.
-SkyReels V2 I2V takes a static reference image — one high-quality portrait per avatar is all that's needed.
+Channel identity is built around a rotating roster of 3-5 presenters.
+Default ratio: 3 female : 1 male (or 4F:1M on expansion).
+Female presenters: bold, classy, well-groomed, photorealistic.
+All portraits seed-locked — same face reused every video via SkyReels I2V.
 
-```
-avatar_1_tech (male, analytical):
-"Professional male tech presenter, sharp fitted charcoal suit,
- confident direct gaze, modern dark studio background,
- photorealistic portrait, cinematic studio lighting,
- strong features, authoritative expression, 8k quality"
+Portraits generated once via FLUX.1 [dev] on EC2 g4dn.xlarge spot.
+Stored: s3://content-factory-assets/avatars/dynamic/{channelId}/{presenterId}/reference.jpg
+Reused every video — SkyReels animates the same reference portrait.
 
-avatar_2_lifestyle (female, conversational):
-"Elegant female lifestyle presenter, bold colourful blazer,
- statement jewellery, radiant confident warm smile,
- professional makeup, editorial portrait style,
- photorealistic, cinematic lighting, 8k quality"
+Personality evolves over time (Oracle Domain 10 tracks performance).
+Face never changes. Expression hints, tone, content assignment evolve.
+Regum rotates presenters — no same presenter 3x in a row.
 
-avatar_3_finance (male, documentary):
-"Authoritative male finance presenter, premium dark suit,
- crisp white shirt, powerful confident expression,
- dark professional background, photorealistic portrait,
- cinematic studio lighting, 8k quality"
+Human-in-loop approval gate available (off by default).
+If enabled: pipeline hard-stops after portrait generation for user approval.
 
-avatar_4_beauty (female, enthusiastic):
-"Glamorous female beauty presenter, bold elegant dress,
- flawless professional makeup, expressive confident eyes,
- charismatic editorial presence, cinematic portrait,
- photorealistic, 8k quality"
-
-avatar_5_documentary (neutral, documentary):
-"Distinguished documentary presenter, smart sophisticated
- attire, intellectual warm presence, authoritative expression,
- cinematic portrait lighting, photorealistic, 8k quality"
-```
-
-Generation settings: 1024×1024 minimum, cinematic lighting, photorealistic.
-Storage: `s3://content-factory-assets/avatars/{id}/reference.jpg`
-Topic → avatar mapping is automatic (see video-pipeline skill).
-Voice gender always matches avatar gender.
+Read skills/avatar-gen/SKILL.md for full architecture.
 
 ---
 
@@ -719,7 +722,7 @@ BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
 S3_BUCKET_NAME=content-factory-assets
 RRQ_MEMORY_BUCKET=rrq-memory
 
-# EC2 GPU Instances — Two Instances (SkyReels + Wan2.2 only, no FLUX)
+# EC2 GPU Instances — Three Instances (SkyReels + Wan2.2 + FLUX Portrait)
 # SkyReels V2 (avatar — spot, per job)
 EC2_SKYREELS_AMI_ID=
 EC2_SKYREELS_INSTANCE_TYPE=g5.12xlarge
@@ -729,6 +732,11 @@ SKYREELS_MODEL_PATH=s3://content-factory-assets/models/skyreels-v2/
 EC2_WAN2_AMI_ID=
 EC2_WAN2_INSTANCE_TYPE=g5.2xlarge
 WAN2_MODEL_PATH=s3://content-factory-assets/models/wan2.2/
+
+# Avatar Portrait Generation (FLUX.1 [dev] — EC2 g4dn.xlarge spot)
+EC2_FLUX_PORTRAIT_AMI_ID=
+EC2_FLUX_PORTRAIT_INSTANCE_TYPE=g4dn.xlarge
+FLUX_PORTRAIT_MODEL_PATH=s3://content-factory-assets/models/flux1-dev/
 
 #tony coding agent
 TONY_LAMBDA_ARN=   # ARN of the code-agent Lambda
@@ -822,6 +830,7 @@ Lambda workers (audio, visuals, av-sync, upload)    ~$0.04
 S3 + data transfer                                  ~$0.01
 ElevenLabs × 4 accounts                             ~$0.00  (free tier)
 AWS Bedrock (per video LLM calls)                   ~$0.08
+FLUX portrait (g4dn.xlarge spot ~$0.53/hr × 4min, once per presenter)  ~$0.04 amortized
 ────────────────────────────────────────────────────
 Per video                                            ~$0.52
 ```
@@ -892,7 +901,7 @@ Continue building.
 Phase 1  — Frontend Foundation
 Phase 2  — Manual Pipeline API Routes
 Phase 3  — Lambda Workers
-Phase 4  — EC2 GPU Instances (4a SkyReels / 4b Wan2.2 / 4c TONY Lambda)
+Phase 4  — EC2 GPU Instances (4a SkyReels / 4b Wan2.2 / 4c TONY Lambda / 4d FLUX Portrait)
 Phase 5  — Memory + Agent Infrastructure
 Phase 6  — Rex Agent
 Phase 7  — Regum Agent

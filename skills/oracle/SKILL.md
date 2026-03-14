@@ -341,6 +341,72 @@ export const ORACLE_DOMAINS = [
     `,
   },
 
+  // ── Domain 10 (added Phase 4) ─────────────────────────────────────────────
+  {
+    id: "PRESENTER_PERFORMANCE_ANALYTICS",
+    name: "Presenter Performance Analytics",
+    description: "Oracle tracks per-presenter performance metrics and triggers " +
+                 "evolution or roster expansion recommendations.",
+    primaryAgent: "ZEUS",
+    secondaryAgents: ["MUSE", "REGUM"],
+    researchDepth: "STANDARD",
+    sources: [
+      "channel-health DynamoDB table (per-video CTR + retention snapshots)",
+      "video-memory DynamoDB table (per-presenter performance records)",
+      "theo-comment-actions DynamoDB table (comment sentiment per video)",
+      "avatar-profiles DynamoDB table (presenter roster + evolution history)",
+    ],
+    queries: [],   // no external web search — data-driven from internal tables only
+
+    // Trigger conditions:
+    // - After every 10 videos: performance snapshot
+    // - After 30 videos: full evolution evaluation
+    // - On Zeus directive: immediate review
+    // - On catastrophic CTR drop (< 2% for 3 consecutive videos with same presenter)
+
+    analyticsInput: `
+interface PresenterAnalyticsUpdate {
+  presenterId: string;
+  channelId: string;
+  videosAnalyzed: number;
+  performanceByContentType: {
+    contentType: string;
+    avgCTR: number;
+    avgRetention: number;
+    avgViewCount: number;
+    commentSentiment: 'positive' | 'neutral' | 'negative';
+  }[];
+  rotationBalance: { [presenterId: string]: number }; // % of videos
+  humanApprovalSignals: number; // count of human-approved portraits
+}
+    `,
+
+    oracleOutputs: `
+type OraclePresenterRecommendation =
+  | { action: 'EVOLVE'; presenterId: string; reason: string; traitChanges: string[] }
+  | { action: 'EXPAND_ROSTER'; reason: string; newPresenterBrief: string }
+  | { action: 'RETIRE'; presenterId: string; reason: string; replacement: string }
+  | { action: 'NO_ACTION'; reason: string };
+    `,
+
+    injectionTargets: [
+      "MUSE system prompt (next character brief generation)",
+      "REGUM system prompt (rotation scoring weights)",
+      "Zeus episode log (performance record)",
+    ],
+
+    // Human approval as a high-confidence signal:
+    // When a user approves a presenter portrait via the human-in-loop gate:
+    //   - Oracle tags that presenter's performance data as HIGH_CONFIDENCE
+    //   - Human aesthetic preferences override model-estimated scores
+    //   - Rejection reason stored and injected into next FLUX generation prompt
+    humanApprovalBehaviour: {
+      onApproval: "Tag presenter performance data as HIGH_CONFIDENCE",
+      onRejection: "Store rejection reason; inject into next FLUX portrait generation prompt",
+      preference: "Human aesthetic preferences override model-estimated scores",
+    },
+  },
+
 ] as const;
 
 export type DomainId = typeof ORACLE_DOMAINS[number]["id"];

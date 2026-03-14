@@ -149,6 +149,13 @@ export const ALL_TABLES = [
   { TableName: "niche_profiles",  PK: "channelId",   TTL: null },
   { TableName: "rrq_state",       PK: "instanceId",  TTL: null },
 
+  // Avatar Roster
+  // avatar-profiles — Presenter roster
+  //   PK: channelId, SK: presenterId
+  //   Fields: seed, base_prompt, s3_reference, personality[],
+  //           expression_hints[], performance_scores, evolution_history[]
+  { TableName: "avatar-profiles", PK: "channelId",   SK: "presenterId", TTL: null },
+
 ] as const;
 ```
 
@@ -176,7 +183,7 @@ const expiresAt = Math.floor(Date.now() / 1000) + (180 * 24 * 60 * 60); // 180 d
 
 ## Rule 2 — EC2 Job-Based Launch with Warm Pool
 
-### The Two Instances
+### The Three Instances
 
 ```
 g5.12xlarge   SkyReels V2    Avatar / talking head segments
@@ -188,6 +195,14 @@ g5.2xlarge    Wan2.2         B-roll / environment segments
               Spot price:    ~$0.45/hr
               Max job time:  60min
               Boot time:     ~8-10min (1× A10G)
+
+g4dn.xlarge   FLUX.1 [dev]   Portrait generation (channel onboarding + roster expansion only)
+              Spot price:    ~$0.20/hr
+              NOT always-on — fires on channel onboarding + roster expansion only
+              Self-terminates after portrait batch completes
+              Per-batch cost: ~$0.15-0.25 (3-5 portraits at ~3-4 min each)
+              Steady state cost: near-zero (portraits reused forever via SkyReels)
+              Model: open source Apache 2.0, weights stored in S3
 ```
 
 ### Zeus Warm Pool Scheduling
@@ -707,6 +722,11 @@ export async function getInstanceServerUrl(
 # EC2 AMIs — baked with model weights, one per instance type
 EC2_SKYREELS_AMI_ID=              # g5.12xlarge + SkyReels V2 preloaded
 EC2_WAN2_AMI_ID=                  # g5.2xlarge  + Wan2.2 FP8 preloaded
+
+# Portrait generation — fires on onboarding + roster expansion only, not per-video
+EC2_FLUX_PORTRAIT_AMI_ID=         # g4dn.xlarge + FLUX.1 [dev] FP8 preloaded
+EC2_FLUX_PORTRAIT_INSTANCE_TYPE=g4dn.xlarge
+FLUX_PORTRAIT_MODEL_PATH=s3://content-factory-assets/models/flux1-dev/
 
 EC2_INSTANCE_PROFILE=             # IAM role — DynamoDB + S3 + ec2:TerminateInstances
 EC2_BOOT_LAMBDA_ARN=              # ARN of ec2-boot Lambda
