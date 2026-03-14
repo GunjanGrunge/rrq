@@ -683,13 +683,13 @@ interface AINewsVisualSources {
     benchmarkRun:   string;  // run HumanEval subset, record results live
   };
 
-  // TIER 3 — FLUX.2 [klein] generated stills
-  fluxGenerated: {
-    // Section cards between topics: "artificial intelligence neural network, dark blue tones"
-    // Concept illustrations: "language model token prediction, abstract data flow"
-    // Thumbnail source images: cinematic, high contrast, model-face-consistent
+  // TIER 3 — TONY generated (code-agent Lambda)
+  tonyGenerated: {
+    // Section cards: Remotion animated compositions, brand-consistent dark theme
+    // Concept illustrations: D3/Recharts data-driven visuals, stat callouts, timelines
+    // Thumbnail source: TONY renders a high-contrast composition for thumbnail base
     // NEVER: generated screenshots of interfaces (use real screen recordings)
-    // NEVER: generated benchmark tables (use Chart.js from real data)
+    // NEVER: generated benchmark tables (use Chart.js from real data — TONY handles this)
     sectionCards:    string;
     conceptImages:   string;
     thumbnailSrc:    string;
@@ -814,18 +814,18 @@ interface MotorsportVisualSources {
     trackMaps:        string;   // FIA official circuit layouts
   };
 
-  // TIER 3 — FLUX.2 [klein] generated stills (section cards + concept images)
-  fluxGenerated: {
-    // FLUX generates section cards, transition stills, concept illustrations
-    // Brand-consistent, channel-aesthetic matched
-    // Apache 2.0 — fully commercial, self-hosted
-    sectionCards:     string;   // "Monaco circuit layout, dramatic overhead, dark" 
-    conceptImages:    string;   // "F1 tyre strategy decision, abstract data visual"
-    thumbnailSrc:     string;   // thumbnail base image with avatar reference
+  // TIER 3 — TONY generated (code-agent Lambda)
+  tonyGenerated: {
+    // TONY renders section cards, transition animations, concept compositions
+    // Brand-consistent dark theme via Remotion + RRQ theme tokens
+    // Lambda output — fully owned, zero EC2 cost
+    sectionCards:     string;   // animated section card: "Monaco circuit, dark cinematic"
+    conceptImages:    string;   // data composition: "F1 tyre strategy timeline"
+    thumbnailSrc:     string;   // thumbnail base composition with avatar reference
   };
 
   // TIER 4 — Legal stock footage (Pexels/Pixabay search terms)
-  // SUPPLEMENTARY ONLY — for generic atmosphere when FLUX or data viz don't cover it
+  // SUPPLEMENTARY ONLY — for generic atmosphere when TONY data viz doesn't cover it
   legalStock: {
     // These return real racing footage — low quality but legally clean
     // Use for atmosphere B-roll only, not as the main visual
@@ -891,7 +891,7 @@ const copyrightMatrix: Record<string, CopyrightRisk> = {
   "pixabay_stock":          { level: "SAFE",           action: "Pixabay licence" },
   "wan2_generated":         { level: "SAFE",           action: "you generated it" },
   "skyreels_generated":     { level: "SAFE",           action: "you generated it" },
-  "flux_generated":         { level: "SAFE",           action: "you generated it — Apache 2.0" },
+  "tony_generated":         { level: "SAFE",           action: "you generated it — Lambda output, fully owned" },
 };
 
 // If any visual source is classified NEVER — block it before it reaches Qeon
@@ -1409,13 +1409,6 @@ research-visual:
     - chromium-layer    # @sparticuz/chromium
     - nodejs-deps
 
-visual-gen:
-  memory: 2048MB        # Puppeteer + Chromium needs RAM
-  timeout: 300s
-  layers:
-    - chromium-layer
-    - nodejs-deps       # chart.js, mermaid
-
 av-sync:
   memory: 3008MB
   timeout: 900s
@@ -1452,7 +1445,7 @@ broll-gen (Wan2.2):
   handles:        B_ROLL, environment, atmosphere beats only
   upgrade_path:   update model_path when Wan2.3/2.4 weights release
 
-image-gen (Code-agent (TONY):
+image-gen code-agent (TONY):
   type:           Lambda (code-agent/)
   model:          Haiku 4.5 — generates Remotion/Recharts/D3/Nivo/Lottie code
   execution:      child_process.fork() sandboxed JS — 30s SIGKILL
@@ -1470,21 +1463,28 @@ image-gen (Code-agent (TONY):
 # SkyReels segments:    ~12 min @ $1.60/hr spot  = $0.32
 # Wan2.2 b-roll:        ~10 min @ $0.40/hr spot  = $0.07
 # TONY Lambda:          Haiku code-gen + sandbox  = $0.01
-# Lambda workers:       ~$0.04
-# S3 + transfer:        ~$0.01
-# ElevenLabs:           ~$0.00 (free tier rotation)
-# Total per video:      ~$0.44 (+ $136/month fixed for FLUX instance)
+# Lambda workers:       audio, research, av-sync  = $0.04
+# S3 + transfer:                                  = $0.01
+# ElevenLabs × 4:       free tier rotation        = $0.00
+# Bedrock LLM calls:                              = $0.08
+# ──────────────────────────────────────────────────────
+# Total per video:                                ~ $0.53
 #
-# FLUX fixed cost amortised:
-#   1 user  (2 vid/day)  = ~$136/mo fixed → $2.27/video from FLUX
-#   10 users (20 vid/day) = ~$136/mo fixed → $0.23/video from FLUX
-#   50 users (100 vid/day) = ~$136/mo fixed → $0.046/video from FLUX
+# Monthly fixed costs:
+# AWS Bedrock base (agent scheduled runs)         ~ $8.00
+# S3 storage + transfer baseline                  ~ $2.00
+# Inngest                                           $0.00  (free tier)
+# Vercel                                            $0.00  (free tier)
+# ──────────────────────────────────────────────────────
+# Monthly fixed:                                  ~ $10.00
+# (was ~$146/month with FLUX reserved instance)
 #
-# vs fal.ai API ($0.03/image × 10 img/video):
-#   break-even: ~5 users — self-hosted wins from 5 users onwards
-#
-# All three EC2 instances run in parallel →
-# production time ≈ max(SkyReels 12min, Wan2 10min, FLUX 3min) = ~12 min
+# Two EC2 instances run in parallel →
+# production time ≈ max(SkyReels ~12min, Wan2 ~10min) = ~12 min
+# TONY runs concurrently — completes in ~2min, never on critical path
+# Zero idle cost — all workers terminate when job is done
+
+
 ```
 
 ---

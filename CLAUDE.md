@@ -30,7 +30,7 @@ Phase 4+:  NOT STARTED
 
 ### Key Decisions — Do Not Re-Litigate
 ```
-- visual-gen: ALL beats render as animated MP4 (quality > speed, FLUX EC2 eliminated)
+- visual-gen: ALL beats render as animated MP4 (quality > speed, FLUX EC2 eliminated — TONY Lambda handles all stills/infographics)
 - TONY sandbox: child_process.fork() + fetch allowlist + 30s SIGKILL
 - TONY code gen: Bedrock Haiku (never raw user input)
 - MUSE → TONY: execution arm for custom visuals + data prep (dotted line, not replacement)
@@ -151,7 +151,7 @@ AWS LAMBDA WORKERS
                       Renders Remotion MP4s, web scraping, data reports, custom visuals
                       Called by: MUSE (primary), REX, REGUM, ORACLE, QEON, ZEUS
 
-AWS EC2 — THREE GPU Instances
+AWS EC2 — TWO GPU Instances (both spot, both per-job, both self-terminate)
   avatar-gen          g5.12xlarge spot — SkyReels V2-I2V-14B-720P (4× A10G, 96GB VRAM)
                       Launches per job, self-terminates when done
                       Handles: TALKING_HEAD, SPLIT_SCREEN beats
@@ -160,13 +160,11 @@ AWS EC2 — THREE GPU Instances
                       Launches per job, self-terminates when done
                       Handles: B_ROLL, atmospheric video beats
 
-  code-agent          Lambda — TONY (Haiku generates Remotion/Recharts/D3/Nivo code)
-                      Sandboxed JS execution via child_process.fork()
-                      Handles: SECTION_CARD, CONCEPT_IMAGE, CHART, DIAGRAM,
-                               SLIDE, GRAPHIC_OVERLAY, animated infographics,
-                               comparison tables, counters, timelines, overlays
-                      Oracle Domain 9 keeps TONY's package toolbox current
-                      Zero EC2 cost — Lambda only, no always-on instance
+  code-agent          Lambda — TONY (Haiku + Remotion/Recharts/D3/Nivo sandbox)
+                      No EC2. No always-on. Fires instantly per job.
+                      Handles: SECTION_CARD, CONCEPT_IMAGE, THUMBNAIL_SRC,
+                               CHART, DIAGRAM, SLIDE, GRAPHIC_OVERLAY
+                      Oracle Domain 9 keeps package toolbox current automatically
 
 AWS SUPPORT SERVICES
   S3                  All media assets + episodic agent memory
@@ -347,9 +345,9 @@ Step 6   Avatar         EC2 g5.12xlarge — SkyReels V2-I2V-14B-720P (spot, per 
                         Static reference image + audio → talking head MP4 segments
 Step 7   B-Roll         EC2 g5.2xlarge — Wan2.2-T2V-A14B (spot, per job)
                         Text prompts → atmospheric video b-roll segments
-Step 8   Images         EC2 g4dn.xlarge — FLUX.2 [klein] 4B FP8 (ALWAYS ON, reserved)
-                        Section cards + concept images + thumbnail source → PNG
-                        Max 3 retries per image — Vera QA inline after each attempt
+Step 8   Images         TONY Lambda (code-agent) — Haiku generates Remotion/Recharts/D3 code
+                        Section cards + concept images + thumbnail source → PNG/MP4
+                        Max 3 retries — Haiku regenerates code on failure, Vera QA inline
 Step 9   Visuals        Puppeteer Lambda — Chart.js / Mermaid / HTML data viz → PNG/MP4
 Step 10  AV Sync        FFmpeg Lambda — stitch all segments + audio + subtitles → MP4
 Step 11  Vera QA        Final pass — Audio QA + Visual QA + Standards QA
@@ -360,16 +358,16 @@ Step 13  Upload         YouTube main video + Short (Shorts 2-3hrs before main)
 ```
 
 Steps 6, 7, 8 fire in parallel via Promise.allSettled().
-Production time ≈ max(SkyReels ~12min, Wan2.2 ~10min, FLUX ~3min) = ~12 min.
+Production time ≈ max(SkyReels ~12min, Wan2.2 ~10min, TONY Lambda ~1min) = ~12 min.
 
 visualType per beat (Muse's MuseBlueprint):
 ```
 TALKING_HEAD      → SkyReels V2 (EC2 g5.12xlarge)
 SPLIT_SCREEN      → SkyReels V2 (EC2 g5.12xlarge)
 B_ROLL            → Wan2.2 (EC2 g5.2xlarge)
-SECTION_CARD      → FLUX.2 [klein] (EC2 g4dn.xlarge)
-CONCEPT_IMAGE     → FLUX.2 [klein] (EC2 g4dn.xlarge)
-THUMBNAIL_SRC     → FLUX.2 [klein] (EC2 g4dn.xlarge) — always high quality preset
+SECTION_CARD      → TONY Lambda (Remotion/Recharts/D3)
+CONCEPT_IMAGE     → TONY Lambda (Remotion/Recharts/D3)
+THUMBNAIL_SRC     → TONY Lambda (Remotion/Recharts/D3)
 CHART             → Lambda visual-gen (Chart.js)
 DIAGRAM           → Lambda visual-gen (Mermaid)
 SLIDE             → Lambda visual-gen (HTML)
@@ -422,14 +420,13 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 [ ] uploader        (YouTube main + Shorts + playlist + pin comment)
 ```
 
-### Phase 4 — EC2 GPU Instances (Three Separate Instances)
+### Phase 4 — EC2 GPU Instances + TONY Lambda
 
 #### 4a — SkyReels V2 (Avatar / Talking Head)
 ```
 [ ] Create EC2 AMI: g5.12xlarge + CUDA 12 + SkyReels V2-I2V-14B-720P + diffusers
-[ ] Generate 5 avatar portraits using FLUX.2 [klein] (after Phase 4c is live)
-    OR use Midjourney/manual portraits as seed images
-[ ] Upload portraits to S3: s3://content-factory-assets/avatars/{id}/reference.jpg
+[ ] Generate 5 avatar portraits using Midjourney or any image tool — store in S3
+    s3://content-factory-assets/avatars/{id}/reference.jpg
 [ ] Spot instance launch → UserData bootstrap → poll DynamoDB → self-terminate
 [ ] End-to-end test: reference.jpg + MP3 + cue_map → SkyReels → talking head MP4
 [ ] ElevenLabs voice cue → SkyReels expression hint mapping validated
@@ -444,18 +441,19 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 [ ] Niche routing: AI_NEWS → paper figure preferred over generated atmosphere
 ```
 
-#### 4c — FLUX.2 [klein] 4B (Images / Thumbnails) ← ALWAYS ON
+#### 4c — TONY Code Agent (Visuals / Thumbnails / Infographics)
 ```
-[ ] Create EC2 AMI: g4dn.xlarge + CUDA 12 + FLUX.2-klein-4B FP8 + FastAPI server
-[ ] Persistent inference server: FastAPI on :8080, model loaded in VRAM on startup
-[ ] Generation semaphore (max 2 concurrent), quality preset defaults to "high"
-[ ] Full retry logic: max 3 attempts, Vera QA inline after each generation
-[ ] Prompt refinement from Vera failure feedback (targeted correction, not generic retry)
-[ ] Timeout: 60s hard abort per attempt via AbortController
-[ ] Health check endpoint GET /health — CloudWatch alarm → Lambda reboot on failure
-[ ] Buy 1yr reserved instance (g4dn.xlarge) — ~$136/month, always hot
-[ ] End-to-end test: visualNote → prompt build → FLUX → PNG → Vera QA → S3
-[ ] Thumbnail test: reference avatar image → FLUX multi-ref → thumbnail source PNG
+[ ] Read skills/tony/SKILL.md completely first
+[ ] Deploy code-agent Lambda (lambdas/code-agent/)
+[ ] Wire invokeTonyBatch() into Qeon pipeline parallel block
+[ ] Create lib/video-pipeline/tony-batch.ts
+[ ] Add TONY_LAMBDA_ARN to env + Vercel
+[ ] Test: visualNote → buildTonyTask() → Haiku code-gen → sandbox → PNG/MP4 → S3
+[ ] Test: SECTION_CARD beat end-to-end
+[ ] Test: CHART beat with real data object
+[ ] Test: THUMBNAIL_SRC beat → Vera QA → S3
+[ ] Test: fallback path — simplified retry → text card
+[ ] Verify Oracle Domain 9 package injection reaches TONY system prompt
 ```
 
 ### Phase 5 — Memory + Agent Infrastructure
@@ -507,11 +505,11 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 ```
 [ ] Read skills/agents/qeon/SKILL.md completely first
 [ ] Brief → 13-step pipeline orchestration via Inngest
-[ ] Three EC2 workers in parallel: runSkyReelsInstance + runWan2Instance + runFluxGeneration
+[ ] Three parallel workers: runSkyReelsInstance + runWan2Instance + invokeTonyBatch()
 [ ] Promise.allSettled() — per-worker fallback, pipeline does not abort on single failure
 [ ] Zeus memory injection at job start
 [ ] Council trigger after Quality Gate passes (before production)
-[ ] FLUX retry loop: max 3 attempts, Vera QA inline, prompt refinement on failure
+[ ] TONY retry: max 3 attempts, Haiku regenerates code on failure, Vera QA inline
 [ ] Step-level error handling + retry (max 2 per step for Lambda steps)
 [ ] Zeus reporting at every step transition
 [ ] Job state machine in DynamoDB
@@ -561,7 +559,7 @@ Council:
 
 Vera QA:
 [ ] Three domains: Audio QA + Visual QA + Standards QA
-[ ] FLUX inline QA already wired in Phase 4c — this is final pre-publish pass
+[ ] TONY inline QA already wired in Phase 4c — this is final pre-publish pass
 [ ] PASS → CLEARED signal to Theo. FAIL → precise failure report to Qeon
 [ ] Re-check failed domains only — passed domains not re-run
 
@@ -648,9 +646,9 @@ rrq-memory/
 
 ---
 
-## Avatar Personas + FLUX.2 Portrait Prompts
+## Avatar Personas + Portrait Prompts
 
-Generate once using FLUX.2 [klein] 4B (Phase 4c), store in S3, reused every video forever.
+Generate once using any image tool (Midjourney, DALL-E, or manual photography), store in S3, reused every video forever.
 SkyReels V2 I2V takes a static reference image — one high-quality portrait per avatar is all that's needed.
 
 ```
@@ -684,11 +682,10 @@ avatar_5_documentary (neutral, documentary):
  cinematic portrait lighting, photorealistic, 8k quality"
 ```
 
-Generation settings: qualityPreset "high" (40 steps), 1024×1024, no negative prompt clutter.
+Generation settings: 1024×1024 minimum, cinematic lighting, photorealistic.
 Storage: `s3://content-factory-assets/avatars/{id}/reference.jpg`
 Topic → avatar mapping is automatic (see video-pipeline skill).
 Voice gender always matches avatar gender.
-Upgrade path: swap FLUX.2-klein-4B weights for FLUX.2-klein-9B when BFL commercial licence available.
 
 ---
 
@@ -722,7 +719,7 @@ BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
 S3_BUCKET_NAME=content-factory-assets
 RRQ_MEMORY_BUCKET=rrq-memory
 
-# EC2 GPU Instances — Three Separate Instances
+# EC2 GPU Instances — Two Instances (SkyReels + Wan2.2 only, no FLUX)
 # SkyReels V2 (avatar — spot, per job)
 EC2_SKYREELS_AMI_ID=
 EC2_SKYREELS_INSTANCE_TYPE=g5.12xlarge
@@ -759,7 +756,7 @@ NEWS_API_KEY=
 
 # Media APIs (supplementary reference sources — niche research only)
 # Pexels/Pixabay: supplementary stock b-roll for motorsport + fallback only
-# NOT primary pipeline dependencies — FLUX.2 handles stills, Wan2.2 handles video
+# NOT primary pipeline dependencies — TONY handles stills/infographics, Wan2.2 handles video
 PEXELS_API_KEY=
 PIXABAY_API_KEY=
 
@@ -831,26 +828,22 @@ Per video                                            ~$0.52
 
 ### Monthly Fixed Costs (platform, regardless of video count)
 ```
-FLUX.2 [klein] g4dn.xlarge 1yr reserved              ~$10.00  (always-on image gen)
 AWS Bedrock base (agent scheduled runs)              ~$8.00
 S3 storage + transfer baseline                       ~$2.00
 Inngest                                              ~$0.00  (free tier)
 Vercel                                               ~$0.00  (free tier)
 ────────────────────────────────────────────────────
-Monthly fixed                                        ~$146.00
+Monthly fixed                                        ~$10.00
 ```
 
 ### Total at Scale (monthly)
 ```
 Volume       Fixed    Variable    Total    Per-video
-1 user/2/day ~$146   + ~$31      ~$177    ~$2.95   (fixed amortised)
-10 users     ~$146   + ~$312     ~$458    ~$0.76
-50 users     ~$146   + ~$1,560   ~$1,706  ~$0.57
-100 users    ~$146   + ~$3,120   ~$3,266  ~$0.54
+1 user/2/day ~$10    + ~$31      ~$41     ~$0.68   (fixed amortised)
+10 users     ~$10    + ~$312     ~$322    ~$0.54
+50 users     ~$10    + ~$1,560   ~$1,570  ~$0.52
+100 users    ~$10    + ~$3,120   ~$3,130  ~$0.52
 ```
-
-FLUX break-even vs fal.ai API ($0.30/video in images): ~5 users.
-Self-hosted FLUX wins permanently from 5 users onwards.
 
 SaaS plan pricing:
 ```
@@ -899,7 +892,7 @@ Continue building.
 Phase 1  — Frontend Foundation
 Phase 2  — Manual Pipeline API Routes
 Phase 3  — Lambda Workers
-Phase 4  — EC2 GPU Instances (4a SkyReels / 4b Wan2.2 / 4c FLUX)
+Phase 4  — EC2 GPU Instances (4a SkyReels / 4b Wan2.2 / 4c TONY Lambda)
 Phase 5  — Memory + Agent Infrastructure
 Phase 6  — Rex Agent
 Phase 7  — Regum Agent
@@ -924,7 +917,7 @@ Phase 13 — Auth + Billing + Polish
 | TONY over FLUX for stills | Remotion/Recharts/D3 generates data-driven, on-brand artifacts. No EC2 cost, no AI image generation, Oracle keeps toolbox current automatically |
 | SkyReels V2 over SadTalker or D-ID | 33 expressions, cinematic quality, zero per-video API cost |
 | Wan2.2 over stock b-roll APIs | VBench 84.7%, generated not licensed, no attribution required |
-| FLUX.2 [klein] 4B over fal.ai API | Apache 2.0 commercial, self-hosted, ~$0 marginal past 5 users |
+| TONY Lambda over fal.ai API for images | Zero EC2 cost, Lambda-only, Remotion/D3/Recharts output is fully owned, Oracle keeps toolbox current |
 | Puppeteer over D3/Matplotlib | Browser-quality render, CSS animations, any visual type |
 | ElevenLabs × 4 over single account | 40k free chars/month at zero cost |
 | FFmpeg on Lambda over video APIs | Zero cost, full control, Lambda layer available |

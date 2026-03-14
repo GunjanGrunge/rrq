@@ -3,7 +3,7 @@ name: infrastructure
 description: >
   RRQ infrastructure cost control. Three rules govern all AWS spend:
   all DynamoDB tables run PAY_PER_REQUEST billing (zero idle cost),
-  all three EC2 GPU instances are job-launched with warm-pool scheduling
+  both EC2 GPU instances are job-launched with warm-pool scheduling
   (never always-on), and every EC2 instance uses a two-layer termination
   system — self-termination as the primary mechanism, Lambda Watchdog as
   the safety net for crash or hang scenarios. Read this skill before
@@ -40,7 +40,7 @@ RULE 1 — DynamoDB:   Every table uses PAY_PER_REQUEST billing.
                      No provisioned capacity anywhere in the system.
                      Zero traffic = zero cost. No exceptions.
 
-RULE 2 — EC2:        All three GPU instances are job-launched.
+RULE 2 — EC2:        Both GPU instances are job-launched.
                      None are always-on. None are reserved.
                      Zeus schedules boot before production starts.
                      Every instance self-terminates on job completion.
@@ -176,7 +176,7 @@ const expiresAt = Math.floor(Date.now() / 1000) + (180 * 24 * 60 * 60); // 180 d
 
 ## Rule 2 — EC2 Job-Based Launch with Warm Pool
 
-### The Three Instances
+### The Two Instances
 
 ```
 g5.12xlarge   SkyReels V2    Avatar / talking head segments
@@ -188,28 +188,6 @@ g5.2xlarge    Wan2.2         B-roll / environment segments
               Spot price:    ~$0.45/hr
               Max job time:  60min
               Boot time:     ~8-10min (1× A10G)
-
-g4dn.xlarge   FLUX.2 klein   Stills / thumbnails / section cards
-              Spot price:    ~$0.16/hr
-              Max job time:  45min
-              Boot time:     ~6-8min (T4, 4B FP8 model)
-```
-
-### Previous vs New Design
-
-```
-PREVIOUS:
-  FLUX g4dn.xlarge — ALWAYS ON, 1yr reserved, ~$136/month fixed cost
-  SkyReels — spot, per job, self-terminates   (already correct)
-  Wan2.2   — spot, per job, self-terminates   (already correct)
-
-NEW — all three job-launched:
-  FLUX     — spot, job-launched, self-terminates
-  SkyReels — spot, job-launched, self-terminates (no change)
-  Wan2.2   — spot, job-launched, self-terminates (no change)
-
-Monthly saving on FLUX alone: ~$130/month
-Total EC2 idle cost:          $0.00
 ```
 
 ### Zeus Warm Pool Scheduling
@@ -225,13 +203,11 @@ delay in production — just a pre-production wait that Zeus manages.
 const BOOT_LEAD_TIME_MINUTES = {
   SKYREELS: 14,  // g5.12xlarge — larger model, longer boot
   WAN2:     12,  // g5.2xlarge
-  FLUX:     10,  // g4dn.xlarge — smallest model, fastest boot
 } as const;
 
 const MAX_JOB_MINUTES = {
   SKYREELS: 90,
   WAN2:     60,
-  FLUX:     45,
 } as const;
 
 // Zeus calls this when a production job is confirmed after council sign-off
@@ -309,11 +285,6 @@ const EC2_LAUNCH_CONFIG = {
     ImageId:      () => process.env.EC2_WAN2_AMI_ID!,
     InstanceType: "g5.2xlarge" as const,
     MaxSpotPrice: "0.65",
-  },
-  FLUX: {
-    ImageId:      () => process.env.EC2_FLUX_AMI_ID!,
-    InstanceType: "g4dn.xlarge" as const,
-    MaxSpotPrice: "0.25",
   },
 };
 
@@ -396,7 +367,7 @@ instance warm across back-to-back videos to avoid redundant boot cycles.
 
 set -e
 
-INSTANCE_TYPE="{{INSTANCE_TYPE}}"     # SKYREELS | WAN2 | FLUX
+INSTANCE_TYPE="{{INSTANCE_TYPE}}"     # SKYREELS | WAN2
 JOB_ID="{{JOB_ID}}"
 REGION="{{AWS_REGION}}"
 MAX_JOB_MINUTES={{MAX_JOB_MINUTES}}   # 90 | 60 | 45
@@ -525,7 +496,6 @@ Runs every 15 minutes. Near-zero cost when nothing is wrong.
 ```
 SKYREELS (90min max + 15min idle + 30min buffer) = fires at 135min
 WAN2     (60min max + 15min idle + 30min buffer) = fires at 105min
-FLUX     (45min max + 15min idle + 30min buffer) = fires at  90min
 
 If instance alive beyond these thresholds — Layer 1 failed.
 Watchdog terminates and notifies Zeus.
@@ -540,7 +510,6 @@ Watchdog terminates and notifies Zeus.
 const WATCHDOG_THRESHOLD_MINUTES = {
   SKYREELS: 135,   // 90 + 15 + 30
   WAN2:     105,   // 60 + 15 + 30
-  FLUX:      90,   // 45 + 15 + 30
 } as const;
 
 export async function handler(): Promise<void> {
@@ -662,13 +631,13 @@ Add to THE LINE filter rules:
 Zeus morning brief entry for a watchdog event:
 
 ```
-⚠ WATCHDOG FIRED — FLUX g4dn.xlarge
+⚠ WATCHDOG FIRED — WAN2 g5.2xlarge
   Instance:  i-0abc123def456
   Job:       job-2026-03-13-004
-  Alive:     97min (threshold: 90min)
+  Alive:     112min (threshold: 105min)
   Action:    Force-terminated
 
-  Possible causes: OOM, spot interruption, FLUX process crash, network partition.
+  Possible causes: OOM, spot interruption, Wan2.2 process crash, network partition.
   Recommendation:  Jason to check CloudWatch logs for job-2026-03-13-004.
                    Determine if video needs re-queue.
   No action required now — production pipeline unblocked.
@@ -676,18 +645,17 @@ Zeus morning brief entry for a watchdog event:
 
 ---
 
-## Dynamic FLUX URL Resolution
+## Dynamic Instance URL Resolution
 
-FLUX no longer has a fixed instance ID or server URL. Qeon resolves
-the URL at runtime by querying EC2 for the running instance tagged
-to the current job.
+Qeon resolves the instance URL at runtime by querying EC2 for the
+running instance tagged to the current job.
 
 ```typescript
 // lib/infrastructure/ec2-resolver.ts
 
 export async function getInstanceServerUrl(
   jobId: string,
-  instanceType: "SKYREELS" | "WAN2" | "FLUX",
+  instanceType: "SKYREELS" | "WAN2",
   port: number = 8080,
   maxWaitSeconds: number = 120
 ): Promise<string> {
@@ -726,9 +694,9 @@ export async function getInstanceServerUrl(
   );
 }
 
-// Qeon usage before Step 8:
-// const fluxUrl = await getInstanceServerUrl(jobId, "FLUX");
-// const images  = await generateImages(fluxUrl, imageBatch);
+// Qeon usage before Step 7 (b-roll):
+// const wan2Url = await getInstanceServerUrl(jobId, "WAN2");
+// const broll   = await generateBroll(wan2Url, brollBatch);
 ```
 
 ---
@@ -739,7 +707,6 @@ export async function getInstanceServerUrl(
 # EC2 AMIs — baked with model weights, one per instance type
 EC2_SKYREELS_AMI_ID=              # g5.12xlarge + SkyReels V2 preloaded
 EC2_WAN2_AMI_ID=                  # g5.2xlarge  + Wan2.2 FP8 preloaded
-EC2_FLUX_AMI_ID=                  # g4dn.xlarge + FLUX.2 klein FP8 preloaded
 
 EC2_INSTANCE_PROFILE=             # IAM role — DynamoDB + S3 + ec2:TerminateInstances
 EC2_BOOT_LAMBDA_ARN=              # ARN of ec2-boot Lambda
@@ -747,9 +714,11 @@ EC2_WATCHDOG_LAMBDA_ARN=          # ARN of ec2-watchdog Lambda
 
 AWS_REGION=                       # e.g. us-east-1
 
-# REMOVED — delete these:
-# EC2_FLUX_INSTANCE_ID=           FLUX is no longer always-on
-# EC2_FLUX_SERVER_URL=            URL is now resolved dynamically per job
+# REMOVED — delete these if present:
+# EC2_FLUX_AMI_ID=                FLUX EC2 eliminated — TONY Lambda handles all image gen
+# EC2_FLUX_INSTANCE_ID=           never existed in final design
+# EC2_FLUX_SERVER_URL=            never existed in final design
+# TONY_LAMBDA_ARN is in the main CLAUDE.md env var list
 ```
 
 ---
@@ -761,9 +730,9 @@ OLD:
 | EC2 reserved for FLUX | Always-hot image gen — cold start penalty worse than fixed cost |
 
 NEW:
-| EC2 spot for FLUX     | Job-launched with 10min pre-boot via Zeus scheduler.            |
-|                       | ~$130/month saving vs reserved. Self-terminates on completion.  |
-|                       | Lambda Watchdog force-terminates if self-termination fails.     |
+| TONY Lambda for images | Zero EC2 for stills. Remotion/Recharts/D3 renders all section  |
+|                        | cards, concept images, thumbnails. Lambda-only, no boot time,  |
+|                        | no idle cost. Oracle Domain 9 keeps TONY's toolbox current.    |
 ```
 
 ---
@@ -780,8 +749,6 @@ DynamoDB — PAY_PER_REQUEST:
 [ ] Confirm no PROVISIONED tables exist in AWS console after deploy
 
 EC2 Warm Pool:
-[ ] Build FLUX AMI (g4dn.xlarge) — same model weights as previous always-on
-    New env var: EC2_FLUX_AMI_ID
 [ ] Create lib/infrastructure/ec2-scheduler.ts
     scheduleInstanceBoot(), createOneTimeBootRule(), buildUserData()
 [ ] Create lib/infrastructure/ec2-resolver.ts
@@ -789,15 +756,10 @@ EC2 Warm Pool:
 [ ] Create lib/infrastructure/lambdas/ec2-boot.ts
     Spot launcher — tags instance, records ID in production-jobs,
     deletes one-time EventBridge rule after firing
-[ ] Update UserData template for all three instances
+[ ] Update UserData template for both instances (SKYREELS, WAN2)
     Add self-termination script, internal hang watchdog, next-job check
 [ ] Wire Zeus scheduler — call scheduleInstanceBoot() after council sign-off
     Zeus reads regum-schedule to determine estimatedProductionStart
-[ ] Update Qeon Step 8 (image gen) — replace EC2_FLUX_SERVER_URL
-    with getInstanceServerUrl(jobId, "FLUX")
-[ ] Delete EC2_FLUX_INSTANCE_ID and EC2_FLUX_SERVER_URL from env and code
-[ ] Cancel FLUX 1yr reserved instance when current term expires
-    (or sell on AWS marketplace if < 6 months remaining)
 [ ] Update CLAUDE.md architecture decisions table
 
 Watchdog — Lambda Safety Net:
@@ -831,13 +793,10 @@ Producing 20 videos/month (5/week)
 DynamoDB PAY_PER_REQUEST:        ~$2-4/month
 EC2 SkyReels  20 × 35min × $1.60/hr:  ~$19/month
 EC2 Wan2.2    20 × 20min × $0.45/hr:   ~$3/month
-EC2 FLUX      20 × 15min × $0.16/hr:   ~$1/month
-Lambda (boot + watchdog):        ~$0.05/month
+Lambda (boot + watchdog + TONY):  ~$0.10/month
 S3, Bedrock, ElevenLabs:        unchanged
 
-Total EC2 + DynamoDB:           ~$25-27/month
-Previous FLUX reserved alone:   ~$136/month
-Monthly saving:                 ~$110-130/month
+Total EC2 + DynamoDB:           ~$24-26/month
 
 Zero-idle guarantee:
   DynamoDB:   $0.00  (PAY_PER_REQUEST, zero reads/writes)
