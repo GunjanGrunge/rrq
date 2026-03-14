@@ -380,6 +380,64 @@ When user selects "Generate fresh Short content", write a completely separate sc
 
 ---
 
+---
+
+## Channel Tone — Script-Level Application
+
+The script writer receives `channelTone` as part of the DynamoDB system prompt addendum
+(same hybrid prompt architecture used for niche-specific instructions). Tone modulates
+**sentence construction, voice register, and transition style** — not structure, which is
+owned by the MuseBlueprint.
+
+### Tone → Writing Style Map
+
+```
+analytical:
+  - Lead sentences with data or cited claims
+  - Transitions: "The data shows...", "Which brings us to the evidence for..."
+  - Avoid: speculation, rhetorical questions without answers
+  - Numbers: always contextualised — "3× faster" not "300% improvement"
+
+explanatory:
+  - Lead with the question the viewer is silently asking
+  - Transitions: "Here's why that matters...", "So what does that actually mean?"
+  - Use analogies before abstractions
+  - Short bridging sentences after complex paragraphs
+
+critical:
+  - Open body sections by naming the conventional view and dismissing it
+  - Transitions: "But here's what nobody tells you...", "That's the wrong framing."
+  - First-person opinions are explicit: "I think", "In my view" — not hedged
+  - PEAK voice cues used when landing the counter-argument
+
+entertainment:
+  - Narrative over exposition — character, stakes, moment before data
+  - Transitions act as teasers: "But what happened next changed everything..."
+  - Vary sentence length aggressively — short punches after long build-ups
+  - Rhetorical questions used as tension devices, not information prompts
+
+hybrid (default):
+  - Alternate between evidence and narrative every 2–3 sentences
+  - Transitions can be either style — pick what serves the section
+  - No strong voice register — approachable and credible in equal measure
+```
+
+### Implementation
+
+The system prompt addendum injected from DynamoDB includes:
+
+```
+channelTone: {primary}, confidence: {value}
+Apply the {primary} writing style rules from the script writer skill.
+[If confidence < 0.5]: Blend with hybrid defaults at equal weight.
+[If secondary set]: Apply {secondary} style to body sections 2 and 3 only.
+```
+
+This addendum is appended to the Opus system prompt before the script generation call.
+It is stored per-user in `user-settings.channelTone` and pulled at job start.
+
+---
+
 ## References
 - See `references/retention-patterns.md` for proven structural patterns by video type
 - See `references/cta-formulas.md` for high-converting CTA variations

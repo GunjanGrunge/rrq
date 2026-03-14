@@ -1055,6 +1055,14 @@ BEDROCK_NOVA_PRO_MODEL=amazon.nova-pro-v1:0
 [ ] Add ORACLE panel to Zeus Command Center UI
 [ ] Test with single domain run before enabling all six
 [ ] Verify Bedrock KB ingestion job completes before agents query
+[ ] Create lib/oracle/tone-analytics.ts        — tone performance record writer + correlation analysis
+[ ] Create S3 prefix: rrq-memory/episodes/oracle/tone-performance/{channelId}/
+[ ] Wire tone record write into Zeus Day-7 RRQ Retro job (after metrics available)
+[ ] Wire surfaceToneRefinement() into Oracle Tue/Fri run (after ≥ 5 records exist)
+[ ] Wire tone refinement suggestion → oracle-updates DynamoDB → Zeus in-app notification
+[ ] Test: 5 analytical records → Oracle surfaces refinement suggestion correctly
+[ ] Test: user accepts refinement → user-settings.channelTone updated
+[ ] Test: user dismisses → no re-suggestion for 30 days
 ```
 
 
@@ -1092,3 +1100,79 @@ Oracle queries both:
 
 When both sources conflict — Oracle flags the conflict to The Line
 rather than silently preferring one source.
+
+---
+
+## Domain 10 Extension — Tone Performance Analytics
+
+Oracle Domain 10 (`PRESENTER_PERFORMANCE_ANALYTICS`) is extended to track **tone
+signal → performance correlation** alongside presenter performance.
+
+### What Gets Tracked
+
+After each video's Day-7 RRQ Retro, Zeus writes a tone performance record to S3:
+
+```json
+{
+  "videoId": "string",
+  "channelId": "string",
+  "tone": {
+    "primary": "analytical | explanatory | critical | entertainment | hybrid",
+    "secondary": "string | null",
+    "confidence": 0.8
+  },
+  "metrics": {
+    "avgViewDuration": "seconds",
+    "retentionAt30s": "percentage",
+    "retentionAt50pct": "percentage",
+    "ctr": "percentage",
+    "likeRatio": "percentage"
+  },
+  "museBlueprintAdherence": 9.0,
+  "recordedAt": "ISO timestamp"
+}
+```
+
+Stored at: `s3://rrq-memory/episodes/oracle/tone-performance/{channelId}/{videoId}.json`
+
+### Refinement Suggestion Logic
+
+After 5+ tone performance records are written for a channel, Oracle runs a
+tone correlation analysis on the next scheduled run (Tue/Fri):
+
+```typescript
+// Oracle queries its own S3 prefix for the channel's tone records
+// Groups records by primary tone
+// Compares avg retention at 50% mark per tone group
+// If one tone group outperforms hybrid by > 8 percentage points:
+//   → surfaceToneRefinement() → writes suggestion to oracle-updates DynamoDB
+//   → Zeus picks up oracle-updates and delivers suggestion via in-app notification
+
+interface ToneRefinementSuggestion {
+  currentPrimary: string;
+  suggestedPrimary: string;
+  suggestedSecondary?: string;
+  evidenceSummary: string;     // "Analytical scripts averaged 74% retention vs 61% for hybrid"
+  videosAnalysed: number;
+  confidence: number;          // 0–1
+}
+```
+
+### User Notification
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Oracle — Tone Insight                                   │
+│                                                          │
+│  Based on your last 8 videos, Explanatory scripts        │
+│  averaged 74% retention vs 61% for Hybrid.              │
+│                                                          │
+│  Suggested update: Set primary tone → Explanatory        │
+│                                                          │
+│  [ACCEPT UPDATE]  [SEE DATA]  [DISMISS FOR 30 DAYS]     │
+└─────────────────────────────────────────────────────────┘
+```
+
+User accepts → `user-settings.channelTone` updated, `definedAt` → `"evolved"`.
+User dismisses → Oracle does not re-suggest for 30 days (stored in `oracle-updates` table).
+Zeus logs the interaction as an episode regardless of outcome.

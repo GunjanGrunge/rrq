@@ -868,6 +868,79 @@ After user selects niches and mode per niche, before they proceed:
 
 ---
 
+## Channel Tone Capture
+
+Tone is captured as a **single optional step after niche selection**, before the confidence
+evaluation fires. It is never a gate — a user who skips it or selects "Not sure yet" proceeds
+normally with tone defaulting to `"hybrid"`.
+
+### Tone Step UI
+
+```
+How do you want your channel to feel?
+
+○ Analytical     — Data-driven, credible, structured
+○ Explanatory    — Educational, clear, accessible
+○ Critical       — Opinion-led, contrarian, bold
+○ Entertainment  — Engaging, story-driven, emotional
+○ Hybrid         — Mix of the above (recommended for new channels)
+○ Not sure yet   — We'll start neutral and learn over time
+
+[SKIP →]  [CONTINUE →]
+```
+
+"Not sure yet" maps to `"hybrid"`. Both SKIP and "Not sure yet" are equivalent — neither
+blocks the user, neither requires a rationale.
+
+### DynamoDB Schema
+
+Stored in `user-settings` under `channelTone`:
+
+```typescript
+interface ChannelTone {
+  primary: "analytical" | "explanatory" | "critical" | "entertainment" | "hybrid";
+  secondary?: "analytical" | "explanatory" | "critical" | "entertainment";
+  confidence: number;           // 0–1: how certain the user was at time of selection
+  definedAt: "onboarding" | "evolved" | "user-set";
+  lastUpdatedAt: string;        // ISO timestamp
+}
+```
+
+- `definedAt: "onboarding"` — user selected at this step
+- `definedAt: "evolved"` — Oracle suggested a refinement and user accepted
+- `definedAt: "user-set"` — user manually changed in Settings after onboarding
+
+**Default if skipped:** `{ primary: "hybrid", confidence: 0.3, definedAt: "onboarding" }`
+
+### Downstream Injection
+
+Once captured, `channelTone` is passed as a context field in:
+- Muse's MuseBlueprint generation call
+- Script writer system prompt addendum (DynamoDB hybrid prompt)
+- SEO title generation (tone shapes title framing)
+- Rex topic confidence scoring (topic-tone fit dimension)
+
+No agent uses tone as a hard gate. It is a directional signal, not a filter.
+
+### Tone Evolution (Oracle + Zeus)
+
+After 5+ videos are published, Oracle Domain 10 surfaces a tone refinement suggestion:
+
+```
+Based on your last 8 videos:
+• Analytical scripts averaged 68% retention
+• Explanatory scripts averaged 74% retention
+
+Suggested tone update: Add "explanatory" as secondary tone.
+[ACCEPT]  [DISMISS]
+```
+
+User accepts → `channelTone.secondary` updated, `definedAt` → `"evolved"`.
+User dismisses → Oracle does not re-suggest for 30 days.
+Zeus logs the outcome as an episode to S3 (`rrq-memory/episodes/oracle/`).
+
+---
+
 ## Checklist
 
 ```
@@ -889,6 +962,7 @@ After user selects niches and mode per niche, before they proceed:
       NicheModeToggle.tsx       — per-niche Face/Faceless/Let RRQ radio group
       ConflictNotification.tsx  — Jason's warning with resolution options
       ConfidenceScoreCard.tsx   — overall + per-niche score bars with RE-EVALUATE
+      ToneSelector.tsx          — 5-option tone radio group + skip button
       OnboardingComplete.tsx    — transition to Mission Control
 [ ] Wire "Find my niche" button → runNicheScout()
 [ ] Wire YouTube connect → runChannelAudit()
@@ -896,6 +970,7 @@ After user selects niches and mode per niche, before they proceed:
 [ ] Wire niche+mode selection → evaluateChannelConfidence() — fires before ACCEPT
 [ ] Wire RE-EVALUATE button → evaluateChannelConfidence() with loading spinner
 [ ] Wire ACCEPT button — only enabled when confidence overall >= 40
+[ ] Wire tone selection → user-settings DynamoDB channelTone field (or default hybrid on skip)
 [ ] Wire completion → completeOnboarding() + Jason first sprint
 [ ] Cache niche scout report — 6 hour TTL
 [ ] Cache confidence eval — 24 hour TTL in channel-confidence DynamoDB
@@ -908,6 +983,10 @@ After user selects niches and mode per niche, before they proceed:
 [ ] Test strong conflict (food → gaming) — verify Jason notification fires
 [ ] Test mild overlap (tech → finance) — verify no notification
 [ ] Test multi-niche selection — verify probability bar animates to 95%
+[ ] Test tone selection → user-settings write verified
+[ ] Test tone skip → default hybrid written with confidence 0.3
+[ ] Test "Not sure yet" → maps to hybrid correctly
+[ ] Test tone injection reaches Muse system prompt on first video
 [ ] Test new channel flow end-to-end
 [ ] Test existing channel flow end-to-end
 ```

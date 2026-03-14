@@ -792,6 +792,77 @@ This is the document Qeon writes into. This is what Vera checks against.
 
 ---
 
+## Channel Tone Injection
+
+Muse reads `channelTone` from `user-settings` before building every MuseBlueprint.
+Tone shapes **narrative pacing and beat density** — not the topic or angle.
+
+### Tone → Blueprint Mapping
+
+```typescript
+// Injected into Muse's Opus system prompt as a context block:
+
+const TONE_INSTRUCTIONS: Record<string, string> = {
+  analytical: `
+    Prioritise data beats. Every body section should anchor to a statistic, study,
+    or structured comparison. Tension/release hooks are secondary to credibility
+    signals. Preferred beat types: CHART, DIAGRAM, SLIDE, stat-callout.
+    Avoid speculative language — ground claims before moving on.
+  `,
+  explanatory: `
+    Prioritise clarity over pace. Use analogy and example before abstract principle.
+    Each section should answer one question completely before opening the next.
+    Preferred beat types: CONCEPT_IMAGE, SECTION_CARD, step-by-step sequence.
+    Bridge lines must be explicit — assume viewer needs the connection spelled out.
+  `,
+  critical: `
+    Lead with the counter-intuitive position. Every section earns its place by
+    challenging the obvious answer. Preferred structure: establish the conventional
+    view → undermine it → offer a better frame. Voice cues: PEAK and DROP used
+    more frequently. Opinions are first-person and owned, not hedged.
+  `,
+  entertainment: `
+    Prioritise tension/release dynamics. Story beats outweigh data beats.
+    Emotional escalation should reach a peak by the two-thirds mark.
+    Bridge lines create suspense, not summaries. CTA is earned through emotional
+    investment, not logical argument. Preferred visual: B_ROLL and TALKING_HEAD.
+  `,
+  hybrid: `
+    Balance data credibility with narrative engagement. Alternate between grounding
+    the viewer in facts and pulling them forward with story. No section should be
+    purely informational or purely emotional. Default pacing: moderate.
+  `
+};
+```
+
+### Confidence Weighting
+
+If `channelTone.confidence < 0.5` (user was uncertain or selected "Not sure yet"):
+- Tone instructions are applied at **50% weight** — Muse blends hybrid defaults
+- Muse notes in its council position: `"Tone signal weak — applied partial hybrid blend"`
+- After 5 videos, Oracle suggests a refinement (see onboarding skill)
+
+If `channelTone.confidence >= 0.5`:
+- Tone instructions applied at **full weight**
+- Muse does not note tone in council position — it is treated as baseline
+
+### Secondary Tone
+
+If `channelTone.secondary` is set, Muse applies it to **body sections only**.
+Hook and CTA always follow the primary tone — consistency at the emotional peaks matters
+more than variety in the middle.
+
+```typescript
+// Example: primary = "analytical", secondary = "entertainment"
+// Hook → analytical (data-led open)
+// Body section 1 → analytical
+// Body section 2 → blend (analytical data, entertainment framing)
+// Body section 3 → entertainment-inflected (story beat to carry retention)
+// CTA → analytical (credibility close)
+```
+
+---
+
 ## Updated Checklist
 
 ```
@@ -821,4 +892,7 @@ This is the document Qeon writes into. This is what Vera checks against.
 [ ] Test voice cue embedding — verify ElevenLabs renders correctly
 [ ] Test council position builder — confidence scoring
 [ ] Verify ORACLE format discovery adds to library correctly
+[ ] Test tone injection: analytical → verify data beat density increases
+[ ] Test tone injection: entertainment → verify tension/release device count increases
+[ ] Test tone default (hybrid) → verify neutral pacing applied
 ```
