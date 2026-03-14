@@ -407,6 +407,81 @@ type OraclePresenterRecommendation =
     },
   },
 
+  // ── Domain 11 (added Phase 4+) ────────────────────────────────────────────
+  {
+    id: "AI_DETECTION_RESISTANCE_AUDIT",
+    name: "AI Detection Resistance Audit",
+    description: "Pre-upload gate that audits each finished video for patterns " +
+                 "that could flag it as AI-generated content — template reuse, " +
+                 "audio cadence repetition, metadata similarity, script structure " +
+                 "templating, and predictable upload timing. Runs after VERA QA " +
+                 "passes, before YouTube upload. Owned by Oracle, triggered by " +
+                 "Qeon pipeline. Report-and-patch model: failures are corrected " +
+                 "by the responsible agent before upload proceeds.",
+    primaryAgent: "ZEUS",
+    secondaryAgents: ["QEON", "REGUM"],
+    researchDepth: "STANDARD",
+    sources: [
+      "channel-health DynamoDB table (per-video upload timestamps)",
+      "video-memory DynamoDB table (per-video metadata + script fingerprints)",
+      "oracle/knowledge/AI_DETECTION_RESISTANCE_AUDIT/latest.json",
+      "TONY output frame hashes stored in production-jobs per jobId",
+      "ElevenLabs render metadata (pitch/pace delta per audio render)",
+    ],
+    queries: [],   // no external web search — data-driven from internal tables only
+
+    trigger: "pre-upload gate — after VERA QA passes, before YouTube upload",
+    escalationPolicy: "DOMAIN_11_DETECTION", // references skills/escalation/SKILL.md
+
+    checks: [
+      {
+        signal: "VISUAL_UNIQUENESS",
+        description: "Hash TONY output frames vs previous 20 videos — detect template reuse",
+        threshold: 0.70,
+        fix: "Qeon requests new TONY render with different composition seed",
+      },
+      {
+        signal: "AUDIO_CADENCE_VARIANCE",
+        description: "ElevenLabs pitch/pace delta vs last 5 videos",
+        threshold: 0.65,
+        fix: "Adjust stability + similarity_boost settings on re-render",
+      },
+      {
+        signal: "METADATA_PATTERN_SCORE",
+        description: "Title/description similarity vs channel history (Bedrock embedding cosine similarity)",
+        threshold: 0.70,
+        fix: "Regum regenerates SEO metadata with explicit variation instruction",
+      },
+      {
+        signal: "SCRIPT_TEMPLATE_DETECTION",
+        description: "Bedrock checks own output for repeated sentence structures, template phrases",
+        threshold: 0.75,
+        fix: "Qeon reruns script step with anti-template instruction injected",
+      },
+      {
+        signal: "UPLOAD_TIMING_VARIANCE",
+        description: "Is upload time too predictable? Check regularity against last 10 uploads",
+        threshold: 0.60,
+        fix: "Regum shifts upload slot by 15-45 min random offset",
+      },
+    ],
+
+    outputs: {
+      CLEAR: "all signals above threshold — proceed to upload",
+      WARNING: "1-2 signals below threshold — Qeon patches specific signals, re-check those only",
+      HOLD: "3+ signals below threshold OR any single signal below 0.40 — escalate to Zeus",
+    },
+
+    maxAttempts: 3,       // per escalation policy — after 3 → Zeus → human notification
+    reCheckFailedOnly: true, // on retry, only re-run failed signals not all 5
+
+    agentInstructions: {
+      ZEUS: "Evaluate HOLD escalations. Approve or trigger human notification via SES. Log outcome as episode to S3.",
+      QEON: "On WARNING: patch failing signals, re-trigger Domain 11 check for failed signals only. On HOLD: pause pipeline, await Zeus ruling.",
+      REGUM: "On METADATA_PATTERN_SCORE or UPLOAD_TIMING_VARIANCE failure: regenerate SEO or shift upload slot per fix instruction.",
+    },
+  },
+
 ] as const;
 
 export type DomainId = typeof ORACLE_DOMAINS[number]["id"];

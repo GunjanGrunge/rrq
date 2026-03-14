@@ -156,6 +156,33 @@ export const ALL_TABLES = [
   //           expression_hints[], performance_scores, evolution_history[]
   { TableName: "avatar-profiles", PK: "channelId",   SK: "presenterId", TTL: null },
 
+  // Notifications & Confidence
+  // notifications — User notification inbox
+  //   PK: userId, SK: notificationId
+  //   GSI: jobId (query all notifications for a job)
+  //   Fields: type, jobId, videoTitle, stuckAt, attempts, lastScore,
+  //           threshold, zeusVerdict, options[], expiresAt, autoDecision,
+  //           read, resolved, resolvedBy
+  //   TTL: 30 days
+  //   Written by: Zeus escalation handler
+  //   Read by: frontend notification system
+  { TableName: "notifications",       PK: "userId",    SK: "notificationId", TTL: "expiresAt" }, // 30 days
+
+  // channel-confidence — Niche+mode confidence score cache
+  //   PK: channelId
+  //   Fields: overall, label, perNiche[], crossNicheCoherence,
+  //           suggestions[], risks[], evaluatedAt
+  //   TTL: 24 hours
+  //   Written by: onboarding confidence eval Haiku call
+  //   Read by: onboarding UI, channel settings page
+  { TableName: "channel-confidence",  PK: "channelId", TTL: "expiresAt" }, // 24 hours
+
+  // series-registry — Anime series state machine (COMING SOON — spec only, not built)
+  //   PK: channelId, SK: seriesId
+  //   Fields: title, premise, episodeCount, currentArc,
+  //           nextEpisodeBrief, audienceSignals[], status
+  { TableName: "series-registry",     PK: "channelId", SK: "seriesId",       TTL: null }, // COMING_SOON table (spec only, not built)
+
 ] as const;
 ```
 
@@ -719,6 +746,11 @@ export async function getInstanceServerUrl(
 ## Environment Variables
 
 ```bash
+# AWS SES — Transactional Email Notifications
+SES_FROM_ADDRESS=notifications@rrq.ai   # verified sender domain
+SES_REGION=us-east-1
+SES_CONFIGURATION_SET=rrq-transactional  # for bounce/complaint tracking
+
 # EC2 AMIs — baked with model weights, one per instance type
 EC2_SKYREELS_AMI_ID=              # g5.12xlarge + SkyReels V2 preloaded
 EC2_WAN2_AMI_ID=                  # g5.2xlarge  + Wan2.2 FP8 preloaded

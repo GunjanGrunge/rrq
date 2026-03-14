@@ -70,15 +70,130 @@ export async function triggerVera(
     .every(r => r.passed);
 
   if (allPassed) {
-    return veraCleared(productionJob, {
-      audioResult, visualResult, standardsResult
-    });
+    // All three domains passed — now trigger Oracle Domain 11 pre-upload check
+    const domain11Result = await triggerOracleDomain11(productionJob);
+
+    if (domain11Result.outcome === "CLEAR") {
+      // All signals above threshold — proceed to upload
+      return veraCleared(productionJob, {
+        audioResult, visualResult, standardsResult, domain11Result
+      });
+    } else if (domain11Result.outcome === "WARNING") {
+      // 1-2 signals below threshold — send failing signals back to Qeon for patch
+      // Vera re-checks only the failed signals after patch is applied
+      return veraHoldForDomain11(productionJob, domain11Result);
+    } else {
+      // HOLD — 3+ signals below threshold OR any single signal below 0.40
+      // Escalate per ESCALATION_POLICIES.DOMAIN_11_DETECTION (see skills/escalation/SKILL.md)
+      return veraEscalateDomain11(productionJob, domain11Result);
+    }
   } else {
     return veraFailed(productionJob, {
       audioResult, visualResult, standardsResult
     });
   }
 }
+```
+
+---
+
+## Oracle Domain 11 — Pre-Upload Check
+
+After all three QA domains pass, Vera triggers Oracle Domain 11
+(AI_DETECTION_RESISTANCE_AUDIT) before handing off to Theo.
+
+```typescript
+async function triggerOracleDomain11(
+  job: ProductionJob,
+): Promise<Domain11Result> {
+  // Invoke Oracle Domain 11 check via agent-messages
+  await writeToAgentMessages({
+    type: "DOMAIN_11_CHECK_REQUEST",
+    from: "VERA",
+    to: "ORACLE",
+    payload: { videoId: job.videoId, jobId: job.jobId },
+  });
+
+  // Wait for Oracle response (synchronous within Vera's Inngest step)
+  const result = await pollForDomain11Result(job.videoId);
+  return result;
+  // result.outcome: "CLEAR" | "WARNING" | "HOLD"
+  // result.failingSignals: string[]  — only populated on WARNING or HOLD
+}
+
+async function veraHoldForDomain11(
+  job: ProductionJob,
+  domain11Result: Domain11Result,
+): Promise<VeraResult> {
+  // WARNING — send specific failing signals back to Qeon for targeted fix
+  await writeToAgentMessages({
+    type: "DOMAIN_11_WARNING",
+    from: "VERA",
+    to: "THE_LINE",
+    payload: {
+      videoId: job.videoId,
+      failingSignals: domain11Result.failingSignals,
+      returnTo: "QEON",
+      reCheckFailedOnly: true,  // on retry, Vera re-checks failing signals only
+    },
+  });
+
+  await broadcastToComms({
+    from: "THE_LINE",
+    message: `Vera Domain 11 WARNING on Video #${job.videoId}.
+              Failing signals: ${domain11Result.failingSignals.join(", ")}.
+              Returning to Qeon for targeted patch. Will re-check failed signals only.`,
+  });
+
+  return { status: "DOMAIN_11_WARNING", videoId: job.videoId,
+           failingSignals: domain11Result.failingSignals };
+}
+
+async function veraEscalateDomain11(
+  job: ProductionJob,
+  domain11Result: Domain11Result,
+): Promise<VeraResult> {
+  // HOLD — escalate per ESCALATION_POLICIES.DOMAIN_11_DETECTION
+  // Zeus evaluates → if unresolved after maxAttempts → SES + in-app notification
+  await writeToAgentMessages({
+    type: "DOMAIN_11_HOLD",
+    from: "VERA",
+    to: "ZEUS",
+    payload: {
+      videoId: job.videoId,
+      failingSignals: domain11Result.failingSignals,
+      escalationPolicy: "DOMAIN_11_DETECTION",
+    },
+  });
+
+  await broadcastToComms({
+    from: "THE_LINE",
+    message: `Vera Domain 11 HOLD on Video #${job.videoId}.
+              ${domain11Result.failingSignals.length} signals failed (or one below 0.40).
+              Escalating to Zeus per DOMAIN_11_DETECTION policy.`,
+  });
+
+  return { status: "DOMAIN_11_HOLD", videoId: job.videoId,
+           failingSignals: domain11Result.failingSignals };
+}
+```
+
+### Domain 11 Outcomes
+
+```
+CLEAR    → all 5 signals above threshold
+           Vera sends VERA_CLEARED to Theo + Qeon upload step
+
+WARNING  → 1–2 signals below threshold
+           Vera sends failing signal list to Qeon for targeted patch
+           After patch: Vera re-checks failed signals only (not all 5)
+           On re-check pass → VERA_CLEARED proceeds
+
+HOLD     → 3+ signals below threshold, OR any single signal below 0.40
+           Escalate per ESCALATION_POLICIES.DOMAIN_11_DETECTION
+           (see skills/escalation/SKILL.md)
+           Zeus evaluates → still stuck → SES email + in-app notification
+           User options: APPROVE_ANYWAY | ABORT_JOB | SKIP_THIS_CHECK | RETRY_WITH_NEW_APPROACH
 ```
 
 ---
@@ -381,6 +496,55 @@ Limitation:  Cannot hear or watch — works from metadata,
 
 ---
 
+## Escalation Policies
+
+Vera references these from `skills/escalation/SKILL.md` — do not redefine
+the policies here. Vera gates and their assigned policies:
+
+```typescript
+// Vera gates → escalation policy mapping:
+// VERA_AUDIO_QA:        maxAttempts: 2, escalateTo: ZEUS_THEN_HUMAN, autoDecision: ABORT
+// VERA_VISUAL_QA:       maxAttempts: 2, escalateTo: ZEUS_THEN_HUMAN, autoDecision: ABORT
+// VERA_STANDARDS_QA:    maxAttempts: 2, escalateTo: ZEUS_THEN_HUMAN, autoDecision: ABORT
+// DOMAIN_11_DETECTION:  maxAttempts: 3, escalateTo: ZEUS_THEN_HUMAN, autoDecision: APPROVE
+
+// On maxAttempts exceeded for any Vera gate:
+//   1. Vera notifies Zeus via agent-messages with full failure report
+//   2. Zeus evaluates — makes approve/abort judgment using job history
+//   3. If Zeus cannot resolve → SES email + in-app notification to user
+//   User options: APPROVE_ANYWAY | ABORT_JOB | SKIP_THIS_CHECK | RETRY_WITH_NEW_APPROACH
+
+// Note on DOMAIN_11_DETECTION autoDecision: APPROVE
+//   Domain 11 is a resistance audit — not a content quality gate.
+//   If Zeus cannot resolve after maxAttempts, Zeus may approve with a
+//   LOW_CONFIDENCE_PASS episode written to S3. This is distinct from
+//   audio/visual/standards gates where ABORT is always the safe default.
+```
+
+---
+
+## Retry Behaviour — Failed Domains Only
+
+Vera does not re-run passed domains on retry. Only the specific failed
+domain (or failing signals within Domain 11) are re-checked.
+
+```
+First attempt fails on AUDIO_QA:
+  → Qeon patches the audio issue
+  → Vera re-runs AUDIO_QA only
+  → VISUAL_QA and STANDARDS_QA results from first attempt are carried forward
+  → If AUDIO_QA now passes → move to Domain 11 check
+
+Domain 11 WARNING (1-2 signals):
+  → Qeon/Regum patches the specific failing signals
+  → Vera re-checks only those failing signals (not all 5)
+  → If patched signals pass → VERA_CLEARED proceeds to Theo
+
+This prevents unnecessary re-work and keeps QA fast.
+```
+
+---
+
 ## Checklist
 
 ```
@@ -388,6 +552,7 @@ Limitation:  Cannot hear or watch — works from metadata,
 [ ] lib/vera/audio-qa.ts            voice cue validation
 [ ] lib/vera/visual-qa.ts           thumbnail, b-roll, render checks
 [ ] lib/vera/standards-qa.ts        council approval, quality gate
+[ ] lib/vera/domain11.ts            Oracle Domain 11 trigger + outcome handler
 [ ] lib/vera/cleared.ts             VERA_CLEARED → Theo handoff
 [ ] lib/vera/failed.ts              VERA_FAILED → Qeon return
 [ ] lib/vera/failure-report.ts      precise failure report builder
@@ -395,10 +560,15 @@ Limitation:  Cannot hear or watch — works from metadata,
 [ ] Wire PRODUCTION_COMPLETE → Vera trigger
 [ ] Wire VERA_CLEARED → Theo upload trigger
 [ ] Wire VERA_FAILED → Qeon re-production
+[ ] Wire DOMAIN_11_WARNING → Qeon patch loop
+[ ] Wire DOMAIN_11_HOLD → Zeus escalation
 [ ] Wire all Vera messages → Comms stream
-[ ] Test cleared path — all 3 domains pass
+[ ] Test cleared path — all 3 domains pass + Domain 11 CLEAR
 [ ] Test failed path — audio fail, returns to Qeon
-[ ] Test re-check path — fix applied, Vera re-runs
+[ ] Test re-check path — fix applied, Vera re-runs failed domain only
 [ ] Test standards fail — no council record found
+[ ] Test Domain 11 WARNING path — partial signal failure, patch, re-check
+[ ] Test Domain 11 HOLD path — escalates to Zeus correctly
 [ ] Verify failure report specificity — no vague messages
+[ ] Verify passed domains are NOT re-run on retry
 ```

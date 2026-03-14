@@ -553,6 +553,145 @@ Design notes for both notifications:
 
 ---
 
+## Confidence Score Evaluation
+
+Before a user commits to their niche+mode combination, the system calls Bedrock Haiku to evaluate and return a confidence score (0–100). NOT hardcoded — genuinely evaluated per combination every time.
+
+User can select multiple niches (e.g. AI + Finance + Racing) and set mode per niche independently:
+- Face — SkyReels avatar presenter
+- Faceless — TONY + Wan2.2 + ElevenLabs only
+- Let RRQ Decide — Regum picks per video based on content type
+
+### Types
+
+```typescript
+interface ConfidenceEvalRequest {
+  channelId: string;
+  niches: {
+    niche: string;           // e.g. "AI_NEWS", "FINANCE", "RACING"
+    mode: 'FACE' | 'FACELESS' | 'LET_RRQ_DECIDE';
+  }[];
+  channelType: 'EDUCATIONAL' | 'ENTERTAINMENT' | 'NEWS' | 'MIXED';
+}
+
+interface ConfidenceEvalResult {
+  overall: number;           // 0-100
+  label: 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'LOW' | 'NOT_RECOMMENDED';
+  perNiche: {
+    niche: string;
+    mode: string;
+    score: number;
+    reasoning: string;
+    risks: string[];
+  }[];
+  crossNicheCoherence: number;  // do these niches make sense together?
+  suggestions: string[];         // e.g. "Switch Racing to Faceless for +7 points"
+  risks: string[];               // channel-level risks
+}
+
+// Score labels:
+// 90-100: EXCELLENT
+// 75-89:  GOOD
+// 60-74:  MODERATE
+// 40-59:  LOW
+// 0-39:   NOT_RECOMMENDED
+```
+
+### Seven Evaluation Dimensions
+
+Haiku evaluates these dimensions on every call. NOT hardcoded — passed as evaluation criteria in the system prompt so Haiku reasons about them freshly for each niche+mode combination:
+
+1. Content producibility — can TONY + Wan2.2 handle this niche visually without a face?
+2. Niche-mode fit — does faceless/face work for this content type?
+3. Market saturation — how crowded is this niche right now?
+4. Cross-niche coherence — do these niches make sense on one channel?
+5. AI detection risk — how likely is YouTube to flag this combo?
+6. Revenue potential — CPM estimates per niche (finance > racing > AI news typical)
+7. Audience overlap — do these audiences overlap or fragment?
+
+### Implementation
+
+```typescript
+// lib/onboarding/confidence-eval.ts
+
+export async function evaluateChannelConfidence(
+  req: ConfidenceEvalRequest
+): Promise<ConfidenceEvalResult> {
+
+  // Check DynamoDB cache first (24h TTL)
+  const cached = await getConfidenceCache(req.channelId);
+  if (cached && !cacheExpired(cached)) return cached;
+
+  const bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION });
+
+  const systemPrompt = `You are the Optimizar confidence analysis system.
+A creator is selecting niches and production modes for their YouTube channel.
+Evaluate this combination on seven dimensions:
+1. Content producibility — can TONY + Wan2.2 produce this niche visually without a face?
+2. Niche-mode fit — does the chosen face/faceless mode suit this content type?
+3. Market saturation — how competitive is this niche at this moment?
+4. Cross-niche coherence — do these niches make sense together on one channel?
+5. AI detection risk — how likely is YouTube to flag this content combination?
+6. Revenue potential — realistic CPM range for this niche mix?
+7. Audience overlap — do these audiences reinforce or fragment each other?
+
+Be specific and honest. Score each niche independently, then produce an overall score.
+Return JSON only — no prose outside the JSON block.`;
+
+  const command = new InvokeModelCommand({
+    modelId: process.env.BEDROCK_HAIKU_MODEL ?? "anthropic.claude-haiku-4-5-20251001",
+    body: JSON.stringify({
+      anthropic_version: "bedrock-2023-05-31",
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: [{
+        role: "user",
+        content: `Channel type: ${req.channelType}
+Niche+mode selections: ${JSON.stringify(req.niches, null, 2)}
+
+Evaluate this combination and return a ConfidenceEvalResult JSON object.
+Overall score 0–100. Per-niche score 0–100 each.
+Include concrete suggestions if score < 90 (e.g. "Switch Racing to Faceless for +7 points").
+Include honest risks at the channel level.`
+      }]
+    }),
+    contentType: "application/json",
+    accept: "application/json",
+  });
+
+  const response = await bedrockClient.send(command);
+  const body = JSON.parse(new TextDecoder().decode(response.body));
+  const result: ConfidenceEvalResult = JSON.parse(
+    body.content[0].text.replace(/```json|```/g, "").trim()
+  );
+
+  // Cache result with 24h TTL
+  await setConfidenceCache(req.channelId, result);
+  return result;
+}
+```
+
+### Caching
+
+DynamoDB table: `channel-confidence`
+- PK: channelId
+- TTL: 24 hours
+- Re-evaluate anytime user changes niche or mode selection
+- Never block re-evaluation — it is a Haiku call (~1–2 seconds)
+
+### Escalation
+
+If Haiku call fails twice → show cached result with "Last evaluated X hours ago" label.
+If no cache → show manual checklist prompt, do not block onboarding.
+Reference: ESCALATION_POLICIES.CONFIDENCE_SCORE in skills/escalation/SKILL.md
+
+### Integration Point
+
+Called from: onboarding UI after niche+mode selection, before [ACCEPT] button activates.
+Also callable from: channel settings page anytime user wants to re-evaluate.
+
+---
+
 ## Post-Onboarding — Niche Written to Channel Settings
 
 Whichever flow completes, the final niche selection is written to
@@ -638,13 +777,18 @@ Mission Control dashboard opens, Jason's Day 1 sprint plan ready.
 
 ---
 
-## New DynamoDB Table
+## New DynamoDB Tables
 
 ```
 channel-audit         PK: userId
                       fields: dominantNiche, confidence, distribution[],
                               topKeywords[], identityClarity, identitySummary,
                               auditRunAt, videosAnalysed
+
+channel-confidence    PK: channelId
+                      fields: overall, label, perNiche[], crossNicheCoherence,
+                              suggestions[], risks[], evaluatedAt
+                      TTL:  24 hours — re-evaluates automatically on change
 ```
 
 ---
@@ -666,23 +810,36 @@ channel-audit         PK: userId
 [ ] Create lib/onboarding/niche-scout.ts       — Rex + SNIPER + Oracle scan
 [ ] Create lib/onboarding/channel-audit.ts     — YouTube data pull + ARIA analysis
 [ ] Create lib/onboarding/conflict-detector.ts — overlap matrix + Opus notification
+[ ] Create lib/onboarding/confidence-eval.ts   — Bedrock Haiku 7-dimension scorer
 [ ] Create lib/onboarding/complete.ts          — write settings, brief agents, start sprint
 [ ] Create DynamoDB table: channel-audit
+[ ] Create DynamoDB table: channel-confidence  — 24h TTL, PK: channelId
 [ ] Create app/onboarding/ Next.js route
 [ ] Create components/onboarding/
-      TwoDoors.tsx           — new vs existing channel choice
-      NicheScoutReport.tsx   — ranked niche cards with bars
-      NichePairings.tsx      — best combination cards
-      ChannelAuditReport.tsx — identity report + distribution
-      NicheSelector.tsx      — multi-select with probability bar
-      ConflictNotification.tsx — Jason's warning with resolution options
-      OnboardingComplete.tsx — transition to Mission Control
+      TwoDoors.tsx              — new vs existing channel choice
+      NicheScoutReport.tsx      — ranked niche cards with bars
+      NichePairings.tsx         — best combination cards
+      ChannelAuditReport.tsx    — identity report + distribution
+      NicheSelector.tsx         — multi-select with mode toggle + probability bar
+      NicheModeToggle.tsx       — per-niche Face/Faceless/Let RRQ radio group
+      ConflictNotification.tsx  — Jason's warning with resolution options
+      ConfidenceScoreCard.tsx   — overall + per-niche score bars with RE-EVALUATE
+      OnboardingComplete.tsx    — transition to Mission Control
 [ ] Wire "Find my niche" button → runNicheScout()
 [ ] Wire YouTube connect → runChannelAudit()
 [ ] Wire niche selection → detectConflict()
+[ ] Wire niche+mode selection → evaluateChannelConfidence() — fires before ACCEPT
+[ ] Wire RE-EVALUATE button → evaluateChannelConfidence() with loading spinner
+[ ] Wire ACCEPT button — only enabled when confidence overall >= 40
 [ ] Wire completion → completeOnboarding() + Jason first sprint
 [ ] Cache niche scout report — 6 hour TTL
+[ ] Cache confidence eval — 24 hour TTL in channel-confidence DynamoDB
 [ ] Rate limit niche scout refresh — max once per hour per user
+[ ] Test confidence eval: EXCELLENT combination (Finance Faceless + AI Faceless)
+[ ] Test confidence eval: LOW combination (Beauty Face + Finance Faceless + Gaming Face)
+[ ] Test confidence eval: Haiku failure × 2 — verify cached fallback with timestamp
+[ ] Test confidence eval: no cache + Haiku down — verify manual checklist prompt shown
+[ ] Test ACCEPT button disabled when overall < 40
 [ ] Test strong conflict (food → gaming) — verify Jason notification fires
 [ ] Test mild overlap (tech → finance) — verify no notification
 [ ] Test multi-niche selection — verify probability bar animates to 95%

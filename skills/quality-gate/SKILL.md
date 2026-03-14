@@ -167,6 +167,57 @@ Each targeted rewrite costs a fraction of a full regeneration.
 
 ---
 
+## Escalation on Quality Gate Failure
+
+Maximum two attempts are enforced. After both attempts fail, the following
+escalation sequence runs before pipeline abort.
+
+```typescript
+// After 2 failed attempts:
+
+// 1. isStuck() check
+//    Compare attempt 1 score vs attempt 2 score.
+//    If overall score did not improve by > 0.05 between attempts → escalate immediately
+//    (do not wait for a third attempt — there is no third attempt at the gate level).
+//    A stagnant score signals a structural problem with the topic, not just weak execution.
+
+// 2. Zeus evaluates the two attempt logs
+//    Zeus reads both attempt records from production-jobs DynamoDB (keyed by jobId).
+//    Zeus receives: scores per dimension (both attempts), weakSections, feedback, topic.
+//    Zeus makes an approve/abort judgment using Bedrock Opus.
+
+// 3. Zeus approve path
+//    If Zeus approves despite low score → pipeline continues.
+//    Zeus logs the decision as a LOW_CONFIDENCE_PASS episode to S3 (rrq-memory/).
+//    Episode includes: topic, both attempt scores, Zeus rationale, outcome.
+//    This episode feeds future quality gate calibration via Oracle.
+
+// 4. Zeus cannot resolve path
+//    If Zeus also cannot reach a confident approve/abort decision →
+//    SES email + in-app notification sent to user.
+//    User options: APPROVE_ANYWAY | ABORT_JOB
+//    (No SKIP_THIS_CHECK or RETRY_WITH_NEW_APPROACH — quality gate is non-skippable)
+
+// Quality gate is the most critical gate in the pipeline.
+// ABORT is the correct autoDecision — never auto-approve quality gate failures.
+// Only a human or Zeus can override a failed quality gate.
+
+// Reference: skills/escalation/SKILL.md → ESCALATION_POLICIES.QUALITY_GATE
+
+// Score history storage:
+//   All attempt scores are written to the production-jobs DynamoDB table,
+//   keyed by jobId, as a scoreHistory array:
+//   scoreHistory: [
+//     { attempt: 1, scores: {...}, overall: number, weakSections: string[] },
+//     { attempt: 2, scores: {...}, overall: number, weakSections: string[] },
+//   ]
+//   Zeus reads this array when evaluating the escalation.
+//   Oracle's PRESENTER_PERFORMANCE_ANALYTICS domain (Domain 10) also reads
+//   aggregate score history for channel-level quality trend analysis.
+```
+
+---
+
 ## Rejection Screen (UI)
 
 When recommendation is REJECT after two attempts:

@@ -1423,3 +1423,259 @@ cold-start-reports   — sprint phases, shortlist, completion state
 These are read via API routes and streamed to UI via Pusher/Supabase
 Realtime. No polling. All council and retro messages appear in
 real time in the Comms tab as they are written to agent-messages.
+
+---
+
+## Onboarding — Confidence Score & Mode Selection
+
+---
+
+### Faceless Mode Toggle (per niche in niche picker)
+
+Each niche chip in the picker exposes a mode toggle when selected.
+The toggle appears inline below the chip — only visible when the niche is active.
+
+```
+┌──────────────────┐
+│   AI NEWS  ✓     │
+│  ○ Face           │
+│  ● Faceless       │
+│  ○ Let RRQ       │
+└──────────────────┘
+```
+
+Design spec:
+- Niche chip: background surface (#111111), amber (#f5a623) checkmark when selected, amber border on selected state
+- Mode radio group: renders below the chip with 8px top gap, only when chip is selected
+- Radio dot: 10px circle — filled amber (#f5a623) for selected option, dim grey ring for unselected
+- Radio label: DM Mono, 11px, uppercase, tracking 0.1em — "FACE" / "FACELESS" / "LET RRQ"
+- Only visible when niche chip is in selected state — hidden when niche is deselected
+- Default mode per niche type:
+  - Faceless default: AI_NEWS, FINANCE, HISTORY, SCIENCE, TECH, BUSINESS (educational niches)
+  - Face default: BEAUTY, LIFESTYLE, ENTERTAINMENT, GAMING (personality-driven niches)
+  - Let RRQ default: SPORTS, F1, MOTORSPORT, TRAVEL (mixed — Regum decides per video)
+- Mode change triggers re-evaluation of confidence score automatically (debounced 800ms)
+- Framer Motion: toggle group fades in (opacity 0 → 1, y +8 → 0, 200ms) when chip selected
+- Framer Motion: toggle group fades out (opacity 1 → 0, 150ms) when chip deselected
+
+Component:
+```tsx
+<NicheModeToggle
+  niche="AI_NEWS"
+  mode={selectedMode}           // 'FACE' | 'FACELESS' | 'LET_RRQ_DECIDE'
+  onChange={(mode) => {}}
+  visible={isNicheSelected}
+/>
+```
+
+---
+
+### Confidence Score UI Component
+
+The `ConfidenceScoreCard` appears below the niche picker after the user has selected at least one niche+mode combination. It evaluates via Bedrock Haiku and renders in real time.
+
+```
+┌──────────────────────────────────────────────────────┐
+│  CHANNEL CONFIDENCE                    [RE-EVALUATE] │
+│                                                      │
+│  ████████████████████░░░░  84/100  GOOD              │
+│                                                      │
+│  AI News   (Faceless)  ████████████ 91  Excellent   │
+│  Finance   (Faceless)  ██████████░░ 78  Good        │
+│  Racing    (Face)      ███████░░░░░ 62  Moderate    │
+│                                                      │
+│  ⚠ Racing with face may trigger avatar drift         │
+│  → Switch Racing to Faceless → 89/100               │
+│                                                      │
+│  [ACCEPT]  [TWEAK SELECTION]                        │
+└──────────────────────────────────────────────────────┘
+```
+
+Design spec:
+
+**Container:**
+- Background: surface (#111111)
+- Border: border (#222222) default, amber (#f5a623) at 40% opacity on hover
+- Border radius: consistent with other onboarding cards (8px)
+- Padding: 24px
+
+**Header row:**
+- "CHANNEL CONFIDENCE" — DM Mono, 11px, uppercase, tracking 0.15em, secondary text (#a8a09a)
+- RE-EVALUATE button — ghost variant: transparent background, amber (#f5a623) border (1px), amber text, 10px DM Mono uppercase. On click: shows loading spinner (Loader2 icon, amber, spin animation), triggers Haiku call
+- RE-EVALUATE is always visible — never hidden
+
+**Overall score bar:**
+- Track: background #1a1a1a, height 6px, border-radius 3px, full width
+- Fill: amber (#f5a623), animated from 0 to final score width on load via GSAP (800ms ease-out)
+- Score label: DM Mono, 24px, weight 600 — coloured by label:
+  - EXCELLENT / GOOD → success green (#22c55e)
+  - MODERATE → amber (#f5a623)
+  - LOW / NOT_RECOMMENDED → error red (#ef4444)
+- Label text: DM Mono, 11px, uppercase, same colour as score
+
+**Per-niche rows:**
+- Layout: niche name (left) · mode badge · score bar (fills remaining width) · score number · label text (right)
+- Niche name: DM Mono, 12px, primary text (#f0ece4)
+- Mode badge: small pill — "FACELESS" / "FACE" / "LET RRQ" — background #1a1a1a, DM Mono 10px, secondary text
+- Score bar: same style as overall bar but height 4px — fill colour follows label (green/amber/red)
+- Score number: DM Mono, 14px, weight 600, coloured by label
+- Label text: DM Mono, 10px, secondary — "Excellent" / "Good" / "Moderate" / "Low" / "Not Recommended"
+- Rows stagger in on load: 80ms delay between each row (Framer Motion or GSAP)
+
+**Risks section (⚠ lines):**
+- Icon: amber warning triangle (Lucide `AlertTriangle`, 14px)
+- Text: amber (#f5a623), DM Mono, 12px
+- One line per risk — from `result.risks[]` and per-niche `risks[]`
+- Only visible when risks array is non-empty
+
+**Suggestions section (→ lines):**
+- No icon — leading arrow character "→"
+- Text: secondary (#a8a09a), DM Mono, 12px
+- One line per suggestion — from `result.suggestions[]`
+- Only visible when suggestions array is non-empty
+
+**Action buttons:**
+- ACCEPT: primary amber button — full amber background (#f5a623), dark text (#0a0a0a), Syne font, 14px, weight 700
+  - Disabled state (overall < 40): opacity 40%, cursor not-allowed, no hover effect
+  - Enabled state (overall >= 40): hover lifts 2px, brightness 1.05
+- TWEAK SELECTION: ghost button — transparent, amber border, amber text — returns user to niche picker
+
+**Loading state (during Haiku evaluation):**
+- Score bars replaced with animated skeleton bars (shimmer left-to-right, amber at 20% opacity)
+- Score numbers show "—"
+- Duration ~1–2 seconds
+- RE-EVALUATE button shows Loader2 spinner, disabled during load
+
+**GSAP animation on initial load:**
+- Overall score bar: timeline starts at width 0, animates to `(score/100 * 100)%` — duration 800ms, ease "power2.out"
+- Score number: counts up from 0 to final score — same 800ms timeline
+- Per-niche bars: staggered, each starts 80ms after previous, same ease
+
+Component:
+```tsx
+<ConfidenceScoreCard
+  result={confidenceResult}      // ConfidenceEvalResult | null
+  isLoading={isEvaluating}       // true during Haiku call
+  onReEvaluate={() => {}}        // triggers evaluateChannelConfidence()
+  onAccept={() => {}}            // only fires if overall >= 40
+  onTweak={() => {}}             // returns to niche picker
+/>
+```
+
+---
+
+### Full RRQ Disclaimer Modal
+
+Shown when user clicks GO RRQ with at least one niche selected. This is the final confirmation before Full RRQ activates. It is a modal overlay — does not navigate away.
+
+```
+┌──────────────────────────────────────────────────────┐
+│                  LAUNCHING FULL RRQ                  │
+│                                                      │
+│  Full RRQ creates autonomous animated content.       │
+│  No AI-generated faces. Voice + animation only.     │
+│                                                      │
+│  SELECT FORMAT                                       │
+│  ○ WHAT IF      Speculative standalone videos        │
+│  ○ CONSPIRACY   Investigative deep dives             │
+│  ● LET RRQ DECIDE  Rex picks per opportunity         │
+│  ○ ANIME SERIES  ━━ Coming Soon ━━                  │
+│                                                      │
+│  Niche:      AI News, Finance                        │
+│  Frequency:  3 videos/week                           │
+│  Confidence: 84/100  GOOD                           │
+│                                                      │
+│       [LAUNCH FULL RRQ]      [Cancel]               │
+└──────────────────────────────────────────────────────┘
+```
+
+Design spec:
+
+**Overlay:**
+- Background: #0a0a0a at 90% opacity (backdrop)
+- Card: surface (#111111), centered, max-width 480px, padding 40px
+- Border: border (#222222)
+- No border-radius — sharp corners, mission-control aesthetic
+
+**Title:**
+- "LAUNCHING FULL RRQ" — Syne, 20px, weight 700, primary text (#f0ece4), centred, uppercase, tracking 0.08em
+
+**Body copy:**
+- "Full RRQ creates autonomous animated content. No AI-generated faces. Voice + animation only."
+- Lora, 14px, secondary (#a8a09a), centred, line-height 1.6
+
+**"SELECT FORMAT" label:**
+- DM Mono, 11px, uppercase, tracking 0.15em, tertiary (#4a4540)
+- Left-aligned, 16px top margin before radio group
+
+**Format radio options:**
+- Layout: amber radio dot (12px) + label text (DM Mono, 13px, primary text) + sub-label (DM Mono, 11px, secondary)
+- Selected: amber filled dot (#f5a623)
+- Unselected: hollow circle (#333333 border)
+- Hover: border transitions to #444444
+- Options:
+  - WHAT IF — "Speculative standalone videos"
+  - CONSPIRACY — "Investigative deep dives"
+  - LET RRQ DECIDE — "Rex picks per opportunity" — selected by default
+  - ANIME SERIES — disabled, greyed out. Label: DM Mono, 13px at 30% opacity. "━━ Coming Soon ━━" badge: DM Mono, 10px, tertiary (#4a4540), inline
+
+**Summary rows:**
+- "Niche:" row — DM Mono, 12px, secondary label + primary value. Shows comma-separated selected niches
+- "Frequency:" row — same style. Computed by Regum from channel settings (default: 3 videos/week)
+- "Confidence:" row — score number coloured by label (green/amber/red) + label text
+
+**LAUNCH FULL RRQ button:**
+- Full width, amber background (#f5a623), dark text (#0a0a0a), Syne, 16px, weight 800, uppercase, tracking 0.1em, padding 18px
+- On click: GSAP amber sweep animation identical to the GO RRQ button sweep (covers full screen, then transitions to live agent feed)
+- Disabled if no niche selected (should never happen at this point — guard anyway)
+
+**Cancel:**
+- Ghost text link below LAUNCH button — DM Mono, 12px, secondary (#a8a09a), underline on hover
+- Closes modal, returns to Zeus Command Center
+
+**Framer Motion:**
+- Modal fades in with scale 0.95 → 1.0, opacity 0 → 1, 250ms ease-out
+- Backdrop fades in simultaneously
+- On cancel: reverse — scale 1.0 → 0.95, opacity 1 → 0, 200ms
+
+Component:
+```tsx
+<FullRRQModal
+  isOpen={showModal}
+  selectedNiches={niches}          // string[] — from niche selector
+  confidenceScore={84}             // overall from ConfidenceEvalResult
+  confidenceLabel="GOOD"
+  frequency="3 videos/week"        // from channel settings
+  onLaunch={(format) => {}}        // 'WHAT_IF' | 'CONSPIRACY' | 'LET_RRQ_DECIDE'
+  onCancel={() => {}}
+/>
+```
+
+---
+
+### Updated Component File Structure (Onboarding additions)
+
+```
+components/onboarding/
+  TwoDoors.tsx              — existing
+  NicheScoutReport.tsx      — existing
+  NichePairings.tsx         — existing
+  ChannelAuditReport.tsx    — existing
+  NicheSelector.tsx         — updated: includes NicheModeToggle per selected chip
+  NicheModeToggle.tsx       — NEW: Face/Faceless/Let RRQ radio group per niche
+  ConflictNotification.tsx  — existing
+  ConfidenceScoreCard.tsx   — NEW: overall + per-niche bars, RE-EVALUATE, ACCEPT
+  OnboardingComplete.tsx    — existing
+
+components/zeus/
+  FullRRQModal.tsx          — NEW: format selector + summary + LAUNCH button
+  GoRRQButton.tsx           — existing (unchanged — modal is separate)
+```
+
+### Updated DynamoDB Tables Referenced in Frontend
+
+```
+channel-confidence    — confidence score cache + last evaluated timestamp
+                        read in ConfidenceScoreCard via /api/onboarding/confidence
+                        written by evaluateChannelConfidence() in lib/onboarding/confidence-eval.ts
+```

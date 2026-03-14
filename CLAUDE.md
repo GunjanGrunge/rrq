@@ -45,6 +45,10 @@ Phase 4+:  NOT STARTED
 Zeus, Rex, Regum, Qeon, ARIA, SNIPER, MUSE, ORACLE, THEO, JASON, VERA, THE LINE,
 TONY (new Phase 3.5 — code agent, MUSE's execution arm)
 
+Universal Escalation Protocol — Zeus-owned, all agents reference
+  Max attempts per gate → isStuck() detection → Zeus evaluates → SES + in-app if unresolved
+  See: skills/escalation/SKILL.md
+
 Skill Systems (not agents — infrastructure-level):
 AVATAR-GEN (Phase 4d — FLUX.1 [dev] portrait generator, onboarding + roster expansion only)
 ```
@@ -118,6 +122,9 @@ the full pipeline with zero human input. One button. Fully autonomous.
 | COLD START DEEP RESEARCH (24hr pre-launch sprint, index seeding) | `skills/cold-start-deep-research/SKILL.md` |
 | TONY (code agent — visuals, scrapers, reports, data) | `skills/tony/SKILL.md` |
 | VERA (QA & Standards agent — audio, visual, standards gate) | `skills/vera/SKILL.md` |
+| Full RRQ faceless mode (What If + Conspiracy formats) | `skills/full-rrq/SKILL.md` |
+| Universal escalation protocol (agent stuck detection + SES notifications) | `skills/escalation/SKILL.md` |
+| Anime series (Coming Soon spec — LoRA pipeline) | `skills/anime-series/SKILL.md` |
 | Avatar presenter roster + portrait generation | `skills/avatar-gen/SKILL.md` |
 | Data Harvest (Rex + ARIA) | `skills/data-harvest/SKILL.md` — includes 6 new intent-layer sources: Google Autocomplete, YouTube Suggestions, Reddit Trending, TikTok Creative Center, Google Keyword Planner, Polymarket |
 | Zeus agent | `skills/agents/zeus/SKILL.md` |
@@ -182,6 +189,8 @@ AWS SUPPORT SERVICES
   Bedrock             Opus/Sonnet/Haiku LLM calls + Knowledge Base
   EventBridge         Cron triggers for agent scheduled runs
   Secrets Manager     All API keys — never hardcode credentials
+  SES                 Transactional email notifications (AGENT_STUCK, JOB_FAILED, HUMAN_APPROVAL)
+                      Action buttons via signed URLs — user resolves stuck jobs from email
 ```
 
 ---
@@ -322,6 +331,9 @@ DynamoDB — Working Memory (real-time, milliseconds)
   the-line-council-index  Bedrock Knowledge Base namespace (owned by The Line)
   channel-audit           onboarding channel identity audit results
   avatar-profiles         Presenter roster — seed, config, performance scores, evolution history
+  notifications       User notification inbox — agent stuck, job failed, approval required
+  channel-confidence  Niche+mode confidence score cache (Haiku eval, 24h TTL)
+  series-registry     Anime series state machine (COMING_SOON — spec only)
 
 Note: user identity, email, and plan tier stored on Clerk publicMetadata.
 All DynamoDB user tables use Clerk userId as partition key.
@@ -364,7 +376,11 @@ Step 10  AV Sync        FFmpeg Lambda — stitch all segments + audio + subtitle
 Step 11  Vera QA        Final pass — Audio QA + Visual QA + Standards QA
                         CLEARED → Theo. FAILED → back to Qeon with precise failure report
 Step 12  Shorts         FFmpeg convert OR fresh Haiku script + Edge-TTS
-Step 13  Upload         YouTube main video + Short (Shorts 2-3hrs before main)
+Step 13  Upload         Oracle Domain 11 — AI detection resistance audit (pre-upload gate)
+                            5-signal check: visual uniqueness, audio cadence, metadata patterns,
+                            script templates, upload timing
+                            CLEAR → proceed | WARNING → patch + re-check | HOLD → escalate
+                        YouTube main video + Short (Shorts 2-3hrs before main)
                         Theo handles comments + community post
 ```
 
@@ -431,7 +447,7 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 [ ] uploader        (YouTube main + Shorts + playlist + pin comment)
 ```
 
-### Phase 4 — EC2 GPU Instances + TONY Lambda (4a SkyReels / 4b Wan2.2 / 4c TONY / 4d FLUX Portrait)
+### Phase 4 — EC2 GPU Instances + TONY Lambda (4a SkyReels / 4b Wan2.2 / 4c TONY / 4d FLUX Portrait / 4e Anime Series)
 
 #### 4a — SkyReels V2 (Avatar / Talking Head)
 ```
@@ -479,6 +495,18 @@ SCREEN_RECORD     → research-visual Lambda (Puppeteer screen capture)
 [ ] Regum rotation logic: no 3x repeat, performance scoring, 20% randomness
 [ ] End-to-end test: channel onboarding → 4 portraits generated → roster approved → SkyReels animated
 ```
+
+#### 4e — Anime Series with LoRA (COMING SOON — Funded Phase)
+```
+[ ] Read skills/anime-series/SKILL.md completely first
+[ ] LoRA training pipeline on EC2 g5.2xlarge
+[ ] Character sheet generation (TONY + IP-Adapter reference)
+[ ] Series state machine in DynamoDB (series-registry, episode-registry, anime-characters)
+[ ] Rex/Oracle audience signal loop for arc continuation decisions
+[ ] Wan2.2 + LoRA inference integration
+[ ] End-to-end test: character brief → LoRA train → consistent anime generation → episode 1
+```
+Status: NOT STARTED — requires funding authorization before build begins.
 
 ### Phase 5 — Memory + Agent Infrastructure
 ```
@@ -709,6 +737,11 @@ AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 
+# AWS SES — Transactional Notifications
+SES_FROM_ADDRESS=notifications@rrq.ai
+SES_REGION=us-east-1
+SES_CONFIGURATION_SET=rrq-transactional
+
 # Vercel + Inngest
 INNGEST_EVENT_KEY=
 INNGEST_SIGNING_KEY=
@@ -902,6 +935,7 @@ Phase 1  — Frontend Foundation
 Phase 2  — Manual Pipeline API Routes
 Phase 3  — Lambda Workers
 Phase 4  — EC2 GPU Instances (4a SkyReels / 4b Wan2.2 / 4c TONY Lambda / 4d FLUX Portrait)
+Phase 4e — Anime Series (COMING SOON — LoRA pipeline, funded phase)
 Phase 5  — Memory + Agent Infrastructure
 Phase 6  — Rex Agent
 Phase 7  — Regum Agent
