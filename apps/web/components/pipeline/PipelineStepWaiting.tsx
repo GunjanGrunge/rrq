@@ -2,12 +2,6 @@
 
 import { usePipelineStore } from "@/lib/pipeline-store";
 
-type InfraTag = {
-  label: string;
-  phase: string;
-  status: "ready" | "pending" | "building";
-};
-
 type SubTask = {
   label: string;
   done: boolean;
@@ -18,7 +12,6 @@ interface PipelineStepWaitingProps {
   title: string;
   description: string;
   icon: React.ReactNode;
-  infraTags: InfraTag[];
   subTasks?: SubTask[];
   estimatedTime?: string;
   prerequisiteStep?: number;
@@ -29,7 +22,6 @@ export default function PipelineStepWaiting({
   title,
   description,
   icon,
-  infraTags,
   subTasks,
   estimatedTime,
   prerequisiteStep,
@@ -47,14 +39,14 @@ export default function PipelineStepWaiting({
     <div className="flex-1 flex flex-col p-8 max-w-2xl mx-auto w-full">
       {/* Step header */}
       <div className="flex items-start gap-5 mb-8">
-        <div className="w-14 h-14 rounded-full bg-bg-surface border border-bg-border flex items-center justify-center shrink-0">
+        <div className="w-14 h-14 rounded-full bg-bg-surface border border-bg-border flex items-center justify-center shrink-0 text-text-tertiary">
           {icon}
         </div>
         <div>
           <h1 className="font-syne text-2xl font-bold text-text-primary mb-1">
             {title}
           </h1>
-          <p className="font-dm-mono text-xs text-text-secondary leading-relaxed">
+          <p className="font-lora text-sm text-text-secondary leading-relaxed">
             {description}
           </p>
         </div>
@@ -127,7 +119,7 @@ export default function PipelineStepWaiting({
                   )}
                 </div>
                 <span
-                  className={`font-dm-mono text-xs ${
+                  className={`font-lora text-sm ${
                     task.done ? "text-text-tertiary line-through" : "text-text-secondary"
                   }`}
                 >
@@ -139,61 +131,11 @@ export default function PipelineStepWaiting({
         </div>
       )}
 
-      {/* Infrastructure tags */}
-      <div className="mb-6">
-        <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-3">
-          Infrastructure
-        </span>
-        <div className="space-y-2">
-          {infraTags.map((tag, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between p-3 bg-bg-surface border border-bg-border"
-            >
-              <div className="flex items-center gap-2.5">
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    tag.status === "ready"
-                      ? "bg-accent-success"
-                      : tag.status === "building"
-                      ? "bg-accent-warning animate-pulse"
-                      : "bg-text-tertiary"
-                  }`}
-                />
-                <span className="font-dm-mono text-xs text-text-primary">
-                  {tag.label}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-dm-mono text-[10px] text-text-tertiary">
-                  {tag.phase}
-                </span>
-                <span
-                  className={`font-dm-mono text-[10px] px-1.5 py-0.5 border ${
-                    tag.status === "ready"
-                      ? "border-accent-success text-accent-success"
-                      : tag.status === "building"
-                      ? "border-accent-warning text-accent-warning"
-                      : "border-bg-border-hover text-text-tertiary"
-                  }`}
-                >
-                  {tag.status === "ready"
-                    ? "LIVE"
-                    : tag.status === "building"
-                    ? "BUILDING"
-                    : "PENDING"}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Estimated time */}
       {estimatedTime && (
         <div className="flex items-center justify-between px-1">
           <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
-            Estimated runtime
+            Estimated time
           </span>
           <span className="font-dm-mono text-xs text-accent-primary">
             {estimatedTime}

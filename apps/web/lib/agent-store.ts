@@ -28,7 +28,7 @@ export interface AgentScore {
 interface AgentState {
   // GO RRQ mode
   isAutonomousMode: boolean;
-  selectedNiche: string | null;
+  selectedNiches: string[];
 
   // Agent statuses
   agentStatuses: Record<AgentName, AgentStatus>;
@@ -58,7 +58,8 @@ interface AgentState {
 
   // Actions
   setAutonomousMode: (active: boolean) => void;
-  setNiche: (niche: string | null) => void;
+  toggleNiche: (niche: string) => void;
+  clearNiches: () => void;
   setAgentStatus: (agent: AgentName, status: AgentStatus) => void;
   addActivity: (activity: Omit<AgentActivity, "id" | "timestamp">) => void;
   clearOldActivities: () => void;
@@ -70,7 +71,7 @@ interface AgentState {
 
 export const useAgentStore = create<AgentState>((set) => ({
   isAutonomousMode: false,
-  selectedNiche: null,
+  selectedNiches: [],
 
   agentStatuses: {
     zeus: "idle",
@@ -87,7 +88,14 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   setAutonomousMode: (active) => set({ isAutonomousMode: active }),
 
-  setNiche: (niche) => set({ selectedNiche: niche }),
+  toggleNiche: (niche) =>
+    set((state) => ({
+      selectedNiches: state.selectedNiches.includes(niche)
+        ? state.selectedNiches.filter((n) => n !== niche)
+        : [...state.selectedNiches, niche],
+    })),
+
+  clearNiches: () => set({ selectedNiches: [] }),
 
   setAgentStatus: (agent, status) =>
     set((state) => ({

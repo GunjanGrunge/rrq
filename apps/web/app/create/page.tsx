@@ -1,19 +1,71 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown, Send } from "lucide-react";
 
 const TONES = [
-  "informative",
-  "entertaining",
-  "documentary",
-  "controversial",
-  "persuasive",
+  { value: "informative", label: "Informative", desc: "Clear, factual, educational" },
+  { value: "entertaining", label: "Entertaining", desc: "Engaging, fun, story-driven" },
+  { value: "documentary", label: "Documentary", desc: "In-depth, investigative" },
+  { value: "controversial", label: "Controversial", desc: "Bold, opinion-led, contrarian" },
+  { value: "persuasive", label: "Persuasive", desc: "Conviction-driven, action-focused" },
 ] as const;
 
-type Tone = (typeof TONES)[number];
+type Tone = (typeof TONES)[number]["value"];
+
+const NICHES = [
+  { value: "AI & Technology", label: "AI & Tech" },
+  { value: "Finance & Investing", label: "Finance" },
+  { value: "Health & Wellness", label: "Health" },
+  { value: "Business & Entrepreneurship", label: "Business" },
+  { value: "Gaming", label: "Gaming" },
+  { value: "Science & Space", label: "Science" },
+  { value: "News & Current Events", label: "News" },
+  { value: "Sports", label: "Sports" },
+  { value: "Entertainment & Pop Culture", label: "Entertainment" },
+  { value: "Politics & Society", label: "Politics" },
+  { value: "Education", label: "Education" },
+  { value: "Lifestyle", label: "Lifestyle" },
+] as const;
+
+type NicheValue = (typeof NICHES)[number]["value"];
+
+interface ChatMessage {
+  role: "zeus" | "user";
+  content: string;
+}
+
+const ZEUS_OPENING = "Tell me about your video — what topic or idea do you have in mind?";
+
+// Zeus follow-up logic based on what's missing
+function getZeusFollowUp(
+  topic: string,
+  selectedTones: Tone[],
+  selectedNiches: NicheValue[],
+  messageCount: number
+): string | null {
+  if (messageCount === 1 && selectedNiches.length === 0) {
+    return `Got it — "${topic.slice(0, 60)}${topic.length > 60 ? "…" : ""}". What field or audience is this for? Pick a niche above so I can tailor the research and framing.`;
+  }
+  if (messageCount === 1 && selectedTones.length === 0) {
+    return `Nice topic. How do you want it to feel? Informative and factual, entertaining and story-driven, or something else? You can pick a tone above — or skip and I'll choose based on your niche.`;
+  }
+  if (messageCount >= 2 && selectedTones.length === 0 && selectedNiches.length > 0) {
+    const nicheLabel = selectedNiches[0];
+    const suggestedTone =
+      nicheLabel.includes("Finance") || nicheLabel.includes("Science")
+        ? "informative"
+        : nicheLabel.includes("Entertainment") || nicheLabel.includes("Gaming")
+        ? "entertaining"
+        : nicheLabel.includes("Politics") || nicheLabel.includes("News")
+        ? "controversial"
+        : "informative";
+    return `For ${nicheLabel}, I'd suggest an "${suggestedTone}" tone — it tends to perform well with that audience. Feel free to change it above, or I'll go with that.`;
+  }
+  return null;
+}
 
 export default function CreatePage() {
   const router = useRouter();
@@ -23,26 +75,100 @@ export default function CreatePage() {
 
   const [topic, setTopic] = useState("");
   const [duration, setDuration] = useState(10);
-  const [tone, setTone] = useState<Tone>("informative");
+  const [selectedTones, setSelectedTones] = useState<Tone[]>([]);
+  const [selectedNiches, setSelectedNiches] = useState<NicheValue[]>([]);
   const [generateShorts, setGenerateShorts] = useState(false);
   const [shortsType, setShortsType] = useState<"convert" | "fresh">("convert");
   const [qualityThreshold] = useState(7);
   const [isStarting, setIsStarting] = useState(false);
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { role: "zeus", content: ZEUS_OPENING },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [topicConfirmed, setTopicConfirmed] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
   const estimatedWords = Math.round(duration * 150);
+
+  function toggleTone(t: Tone) {
+    setSelectedTones((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+    );
+  }
+
+  function toggleNiche(n: NicheValue) {
+    setSelectedNiches((prev) =>
+      prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]
+    );
+  }
+
+  function handleChatSend() {
+    const msg = chatInput.trim();
+    if (!msg) return;
+
+    const userMessages: ChatMessage[] = [...chatMessages, { role: "user", content: msg }];
+    setChatMessages(userMessages);
+    setChatInput("");
+
+    // First user message sets the topic
+    if (!topicConfirmed) {
+      setTopic(msg);
+      setTopicConfirmed(true);
+    }
+
+    const userMessageCount = userMessages.filter((m) => m.role === "user").length;
+    const followUp = getZeusFollowUp(
+      topicConfirmed ? topic : msg,
+      selectedTones,
+      selectedNiches,
+      userMessageCount
+    );
+
+    if (followUp) {
+      setTimeout(() => {
+        setChatMessages((prev) => [...prev, { role: "zeus", content: followUp }]);
+      }, 600);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleChatSend();
+    }
+  }
 
   async function handleStart() {
     if (!topic.trim()) return;
     setIsStarting(true);
 
     const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const primaryTone = selectedTones[0] ?? "informative";
 
-    setBrief({ topic, duration, tone, generateShorts, shortsType, qualityThreshold });
+    setBrief({
+      topic,
+      duration,
+      tones: selectedTones.length > 0 ? selectedTones : ["informative"],
+      tone: primaryTone,
+      selectedNiches,
+      generateShorts,
+      shortsType,
+      qualityThreshold,
+      chatMessages,
+    });
     startJob(jobId);
     setStep(2);
 
     router.push(`/create/research`);
   }
+
+  const canStart = topic.trim().length > 0;
 
   return (
     <div className="min-h-full flex flex-col items-center justify-center px-8 py-16">
@@ -51,31 +177,152 @@ export default function CreatePage() {
 
       <div className="relative z-10 w-full max-w-2xl">
         {/* Title */}
-        <div className="mb-12 text-center">
+        <div className="mb-10 text-center">
           <span className="font-dm-mono text-xs text-text-tertiary tracking-[0.3em] uppercase block mb-4">
             Step 01 · Creative Brief
           </span>
           <h1 className="font-syne font-bold text-5xl text-text-primary leading-tight">
-            What&apos;s the video about?
+            Let&apos;s build your video.
           </h1>
         </div>
 
-        {/* Topic input */}
-        <div className="mb-8">
-          <textarea
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g. The hidden truth about intermittent fasting that nobody talks about"
-            className="w-full bg-bg-surface border border-bg-border hover:border-bg-border-hover focus:border-accent-primary focus:outline-none focus:ring-0 rounded-none text-text-primary font-lora text-lg p-6 resize-none transition-all duration-200 placeholder:text-text-tertiary"
-            rows={3}
-            style={{ boxShadow: "none" }}
-            onFocus={(e) => {
-              e.target.style.boxShadow = "0 0 0 2px rgba(245, 166, 35, 0.3)";
-            }}
-            onBlur={(e) => {
-              e.target.style.boxShadow = "none";
-            }}
-          />
+        {/* Zeus Chat */}
+        <div className="mb-8 bg-bg-surface border border-bg-border">
+          {/* Chat header */}
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-bg-border">
+            <div className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
+            <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
+              Zeus · Your AI Director
+            </span>
+          </div>
+
+          {/* Messages */}
+          <div className="px-5 py-4 space-y-4 max-h-64 overflow-y-auto">
+            {chatMessages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+              >
+                {msg.role === "zeus" && (
+                  <div className="w-7 h-7 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="font-dm-mono text-[9px] text-accent-primary font-bold">Z</span>
+                  </div>
+                )}
+                <div
+                  className={`max-w-[80%] px-4 py-2.5 font-lora text-sm leading-relaxed ${
+                    msg.role === "zeus"
+                      ? "bg-bg-elevated text-text-secondary"
+                      : "bg-accent-primary/10 border border-accent-primary/20 text-text-primary"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="px-5 pb-5 pt-2 flex gap-3">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={topicConfirmed ? "Reply to Zeus..." : "Describe your video idea..."}
+              className="flex-1 bg-bg-elevated border border-bg-border hover:border-bg-border-hover focus:border-accent-primary focus:outline-none text-text-primary font-lora text-sm px-4 py-2.5 transition-all duration-200 placeholder:text-text-tertiary"
+            />
+            <button
+              onClick={handleChatSend}
+              disabled={!chatInput.trim()}
+              className={`px-4 py-2.5 transition-all duration-150 ${
+                chatInput.trim()
+                  ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse"
+                  : "bg-bg-elevated text-text-tertiary cursor-not-allowed border border-bg-border"
+              }`}
+            >
+              <Send size={15} />
+            </button>
+          </div>
+        </div>
+
+        {/* Niche selector */}
+        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
+              Niche
+            </span>
+            {selectedNiches.length > 0 && (
+              <span className="font-dm-mono text-[10px] text-accent-primary">
+                {selectedNiches.length} selected
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {NICHES.map((n) => (
+              <button
+                key={n.value}
+                onClick={() => toggleNiche(n.value)}
+                className={`
+                  font-dm-mono text-xs px-3 py-1.5 border tracking-wider transition-all duration-150
+                  ${selectedNiches.includes(n.value)
+                    ? "border-accent-primary bg-accent-primary text-text-inverse"
+                    : "border-bg-border text-text-secondary hover:border-accent-primary hover:text-accent-primary"
+                  }
+                `}
+              >
+                {n.label}
+              </button>
+            ))}
+          </div>
+          <p className="font-dm-mono text-[10px] text-text-tertiary mt-3">
+            Select one or more. Helps Zeus tailor research and positioning.
+          </p>
+        </div>
+
+        {/* Tone selector — multi-select */}
+        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
+              Tone
+            </span>
+            <span className="font-dm-mono text-[10px] text-text-tertiary">
+              {selectedTones.length === 0 ? "Zeus will decide" : `${selectedTones.length} selected`}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            {TONES.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => toggleTone(t.value)}
+                className={`
+                  flex items-center justify-between px-4 py-3 border text-left transition-all duration-150
+                  ${selectedTones.includes(t.value)
+                    ? "border-accent-primary bg-accent-primary/5"
+                    : "border-bg-border hover:border-bg-border-hover"
+                  }
+                `}
+              >
+                <div>
+                  <span className={`font-dm-mono text-xs tracking-wider ${
+                    selectedTones.includes(t.value) ? "text-accent-primary" : "text-text-primary"
+                  }`}>
+                    {t.label}
+                  </span>
+                  <span className="font-lora text-xs text-text-tertiary ml-3">{t.desc}</span>
+                </div>
+                {selectedTones.includes(t.value) && (
+                  <div className="w-4 h-4 rounded-sm border border-accent-primary bg-accent-primary flex items-center justify-center shrink-0">
+                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                      <path d="M1 3.5L3 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+          <p className="font-dm-mono text-[10px] text-text-tertiary mt-3">
+            Skip to let Zeus choose based on your niche and topic.
+          </p>
         </div>
 
         {/* Duration slider */}
@@ -99,30 +346,6 @@ export default function CreatePage() {
           <div className="flex justify-between mt-2">
             <span className="font-dm-mono text-[10px] text-text-tertiary">3 min</span>
             <span className="font-dm-mono text-[10px] text-text-tertiary">20 min</span>
-          </div>
-        </div>
-
-        {/* Tone selector */}
-        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
-          <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase block mb-4">
-            Tone
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {TONES.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTone(t)}
-                className={`
-                  font-dm-mono text-xs px-4 py-2 border tracking-widest uppercase transition-all duration-150
-                  ${tone === t
-                    ? "border-accent-primary bg-accent-primary text-text-inverse"
-                    : "border-bg-border text-text-secondary hover:border-accent-primary hover:text-accent-primary"
-                  }
-                `}
-              >
-                {t}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -198,18 +421,18 @@ export default function CreatePage() {
         {/* CTA */}
         <button
           onClick={handleStart}
-          disabled={!topic.trim() || isStarting}
+          disabled={!canStart || isStarting}
           className={`
             w-full flex items-center justify-center gap-3 py-5
             font-syne font-bold text-base tracking-widest uppercase
             transition-all duration-200 group
-            ${topic.trim() && !isStarting
+            ${canStart && !isStarting
               ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse cursor-pointer"
               : "bg-bg-elevated text-text-tertiary cursor-not-allowed"
             }
           `}
         >
-          {isStarting ? "Starting pipeline..." : "Start Pipeline"}
+          {isStarting ? "Starting..." : "Start Pipeline"}
           {!isStarting && (
             <ArrowRight
               size={18}

@@ -4,20 +4,22 @@ import { useAgentStore } from "@/lib/agent-store";
 import { TrendingUp, TrendingDown, Minus, Brain } from "lucide-react";
 
 const NICHES = [
-  "FULL AUTO",
-  "TECH",
-  "NEWS",
-  "SPORTS",
-  "FINANCE",
-  "SCIENCE",
-  "ENTERTAINMENT",
-  "POLITICS",
+  { value: "AI & Technology", label: "TECH" },
+  { value: "Finance & Investing", label: "FINANCE" },
+  { value: "News & Current Events", label: "NEWS" },
+  { value: "Sports", label: "SPORTS" },
+  { value: "Science & Space", label: "SCIENCE" },
+  { value: "Entertainment & Pop Culture", label: "ENTERTAINMENT" },
+  { value: "Politics & Society", label: "POLITICS" },
+  { value: "Health & Wellness", label: "HEALTH" },
+  { value: "Gaming", label: "GAMING" },
+  { value: "Education", label: "EDUCATION" },
 ];
 
 export default function ZeusPage() {
   const {
     isAutonomousMode,
-    selectedNiche,
+    selectedNiches,
     agentStatuses,
     agentScores,
     activities,
@@ -25,7 +27,8 @@ export default function ZeusPage() {
     commentInsights,
     memoryLog,
     setAutonomousMode,
-    setNiche,
+    toggleNiche,
+    clearNiches,
   } = useAgentStore();
 
   function handleGoRRQ() {
@@ -159,24 +162,40 @@ export default function ZeusPage() {
 
               {/* Niche selector — appears on hover */}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mt-2">
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 mb-1">
+                  <button
+                    onClick={clearNiches}
+                    className={`
+                      font-dm-mono text-[10px] px-2 py-1 border tracking-widest transition-all duration-150
+                      ${selectedNiches.length === 0
+                        ? "border-accent-primary bg-accent-primary text-text-inverse"
+                        : "border-bg-border text-text-tertiary hover:border-accent-primary hover:text-accent-primary"
+                      }
+                    `}
+                  >
+                    ALL NICHES
+                  </button>
                   {NICHES.map((niche) => (
                     <button
-                      key={niche}
-                      onClick={() => setNiche(niche === "FULL AUTO" ? null : niche)}
+                      key={niche.value}
+                      onClick={() => toggleNiche(niche.value)}
                       className={`
                         font-dm-mono text-[10px] px-2 py-1 border tracking-widest transition-all duration-150
-                        ${(niche === "FULL AUTO" && selectedNiche === null) ||
-                          selectedNiche === niche
+                        ${selectedNiches.includes(niche.value)
                           ? "border-accent-primary bg-accent-primary text-text-inverse"
                           : "border-bg-border text-text-tertiary hover:border-accent-primary hover:text-accent-primary"
                         }
                       `}
                     >
-                      {niche}
+                      {niche.label}
                     </button>
                   ))}
                 </div>
+                {selectedNiches.length > 0 && (
+                  <p className="font-dm-mono text-[9px] text-text-tertiary pl-0.5">
+                    {selectedNiches.length} niche{selectedNiches.length > 1 ? "s" : ""} selected — Rex will scout across all of them
+                  </p>
+                )}
               </div>
             </div>
           </div>

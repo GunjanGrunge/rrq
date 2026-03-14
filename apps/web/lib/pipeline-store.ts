@@ -3,6 +3,13 @@ import { persist } from "zustand/middleware";
 
 export type StepStatus = "ready" | "running" | "complete" | "error";
 
+export type Tone = "informative" | "entertaining" | "documentary" | "controversial" | "persuasive";
+
+export interface ChatMessage {
+  role: "zeus" | "user";
+  content: string;
+}
+
 export interface PipelineStep {
   number: number;
   label: string;
@@ -12,10 +19,13 @@ export interface PipelineStep {
 export interface BriefData {
   topic: string;
   duration: number; // minutes
-  tone: "informative" | "entertaining" | "documentary" | "controversial" | "persuasive";
+  tone: Tone;              // primary tone (backward compat)
+  tones: Tone[];           // all selected tones
+  selectedNiches: string[];
   generateShorts: boolean;
   shortsType: "convert" | "fresh";
   qualityThreshold: number;
+  chatMessages: ChatMessage[];
 }
 
 interface PipelineState {
