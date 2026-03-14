@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
 import { fetchPagesInParallel, pickBestUrls } from "@/lib/crawler";
+import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
 import type { ResearchOutput } from "@/lib/types/pipeline";
 
 // ─── Research system prompt ─────────────────────────────────────────────────
@@ -119,34 +120,41 @@ export async function POST(req: Request) {
     return Response.json({ error: "Topic is required" }, { status: 400 });
   }
 
-  try {
-    // Layer 1 + 2: Fetch external sources in parallel
-    const [redditData, newsData, wikiData] = await Promise.all([
-      fetchReddit(topic),
-      fetchNewsAPI(topic),
-      fetchWikipedia(topic),
-    ]);
+  const { stream, emit, done } = createSSEStream();
 
-    // Layer 3: Cloudflare crawl of top search-relevant URLs (best effort)
-    let crawledContent = "";
-    if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_BROWSER_RENDERING_TOKEN) {
-      // Simple search-like URLs to crawl for the topic
-      const searchUrls = [
-        `https://en.wikipedia.org/wiki/${encodeURIComponent(topic.replace(/ /g, "_"))}`,
-      ];
-      const pages = await fetchPagesInParallel(
-        pickBestUrls(
-          searchUrls.map((url) => ({ url })),
-          videoType ?? "explainer"
-        )
-      );
-      crawledContent = pages
-        .map((p) => `### Source: ${p.url}\n${p.content.slice(0, 3000)}`)
-        .join("\n\n---\n\n");
-    }
+  (async () => {
+    try {
+      // Stage 0 — fetch external sources
+      emit({ type: "status_line", message: "Rex is scouting the landscape…" });
+      const [redditData, newsData, wikiData] = await Promise.all([
+        fetchReddit(topic),
+        fetchNewsAPI(topic),
+        fetchWikipedia(topic),
+      ]);
+      emit({ type: "stage_complete", stageIndex: 0 });
 
-    // Synthesize with Opus
-    const userPrompt = `Research this topic thoroughly for a YouTube video:
+      // Stage 1 — crawl content
+      emit({ type: "status_line", message: "Rex is reading the room…" });
+      let crawledContent = "";
+      if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_BROWSER_RENDERING_TOKEN) {
+        const searchUrls = [
+          `https://en.wikipedia.org/wiki/${encodeURIComponent(topic.replace(/ /g, "_"))}`,
+        ];
+        const pages = await fetchPagesInParallel(
+          pickBestUrls(
+            searchUrls.map((url) => ({ url })),
+            videoType ?? "explainer"
+          )
+        );
+        crawledContent = pages
+          .map((p) => `### Source: ${p.url}\n${p.content.slice(0, 3000)}`)
+          .join("\n\n---\n\n");
+      }
+      emit({ type: "stage_complete", stageIndex: 1 });
+
+      // Stage 2 — Bedrock synthesis
+      emit({ type: "status_line", message: "Rex is putting it all together…" });
+      const userPrompt = `Research this topic thoroughly for a YouTube video:
 
 TOPIC: ${topic}
 TARGET DURATION: ${duration} minutes
@@ -169,24 +177,24 @@ ${crawledContent || "No crawled content available."}
 
 Based on all available research data, produce the complete research brief JSON. Every data point must be attributed to a source. Generate at least 5 seoTitles, 8+ keyFacts, and 3+ reEngagementMoments.`;
 
-    const research = await callBedrockJSON<ResearchOutput>({
-      model: "opus",
-      systemPrompt: RESEARCH_SYSTEM_PROMPT,
-      userPrompt,
-      maxTokens: 8192,
-      temperature: 0.7,
-      enableCache: true,
-    });
+      const research = await callBedrockJSON<ResearchOutput>({
+        model: "opus",
+        systemPrompt: RESEARCH_SYSTEM_PROMPT,
+        userPrompt,
+        maxTokens: 8192,
+        temperature: 0.7,
+        enableCache: true,
+      });
+      emit({ type: "stage_complete", stageIndex: 2 });
 
-    return Response.json({ success: true, data: research });
-  } catch (error) {
-    console.error("[research] Pipeline error:", error);
-    return Response.json(
-      {
-        error: "Research generation failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
+      emit({ type: "result", data: research });
+    } catch (error) {
+      console.error("[research] Pipeline error:", error);
+      emit({ type: "error", error: error instanceof Error ? error.message : "Research generation failed" });
+    } finally {
+      done();
+    }
+  })();
+
+  return new Response(stream, { headers: SSE_HEADERS });
 }

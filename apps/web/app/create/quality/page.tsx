@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
+import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -9,6 +10,14 @@ import type {
   QualityGateOutput,
 } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
+import StepProgressCard from "@/components/pipeline/StepProgressCard";
+
+const QUALITY_STAGES = [
+  "Reading the content",
+  "Scoring each dimension",
+  "Writing the verdict",
+  "Reviewing the final call",
+];
 
 const DIMENSION_LABELS: Record<string, string> = {
   hookStrength: "Hook Strength",
@@ -29,9 +38,9 @@ export default function QualityPage() {
   const [quality, setQuality] = useState<QualityGateOutput | null>(
     (outputs[4] as QualityGateOutput) ?? null
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(1);
+  const { completedStages, statusLine, isRunning, consume, reset } = useStepProgress();
   const [animatedScores, setAnimatedScores] = useState<Record<string, number>>(
     {}
   );
@@ -44,38 +53,24 @@ export default function QualityPage() {
 
   async function runQuality(currentAttempt: number) {
     if (!researchOutput || !scriptOutput || !seoOutput) return;
-    setLoading(true);
+    reset();
     setError(null);
     setStepStatus(4, "running");
 
-    try {
-      const res = await fetch("/api/pipeline/quality", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          researchOutput,
-          scriptOutput,
-          seoOutput,
-          attempt: currentAttempt,
-          qualityThreshold: brief?.qualityThreshold ?? 7,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error ?? "Quality gate failed");
-
-      setQuality(data.data);
-      setStepOutput(4, data.data);
-      setStepStatus(
-        4,
-        data.data.recommendation === "PROCEED" ? "complete" : "error"
-      );
-      animateScores(data.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStepStatus(4, "error");
-    } finally {
-      setLoading(false);
-    }
+    await consume<QualityGateOutput>(
+      "/api/pipeline/quality",
+      { researchOutput, scriptOutput, seoOutput, attempt: currentAttempt, qualityThreshold: brief?.qualityThreshold ?? 7 },
+      (data) => {
+        setQuality(data);
+        setStepOutput(4, data);
+        setStepStatus(4, data.recommendation === "PROCEED" ? "complete" : "error");
+        animateScores(data);
+      },
+      (msg) => {
+        setError(msg);
+        setStepStatus(4, "error");
+      },
+    );
   }
 
   function animateScores(result: QualityGateOutput) {
@@ -112,7 +107,7 @@ export default function QualityPage() {
   }
 
   useEffect(() => {
-    if (researchOutput && scriptOutput && seoOutput && !quality && !loading) {
+    if (researchOutput && scriptOutput && seoOutput && !quality && !isRunning) {
       runQuality(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -147,7 +142,7 @@ export default function QualityPage() {
           </p>
         </div>
         <StatusPill
-          status={loading ? "running" : quality ? "complete" : "ready"}
+          status={isRunning ? "running" : quality ? "complete" : "ready"}
         />
       </div>
 
@@ -163,15 +158,12 @@ export default function QualityPage() {
         </div>
       )}
 
-      {loading && !quality && (
-        <div className="flex-1 flex items-center justify-center py-20">
-          <div className="text-center">
-            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-dm-mono text-sm text-text-secondary animate-pulse">
-              Scoring content quality...
-            </p>
-          </div>
-        </div>
+      {isRunning && !quality && (
+        <StepProgressCard
+          stages={QUALITY_STAGES}
+          completedStages={completedStages}
+          statusLine={statusLine}
+        />
       )}
 
       {quality && (

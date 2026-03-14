@@ -66,12 +66,12 @@ export default function PipelineProgress() {
 
             {/* Connector line */}
             {index < STEPS.length - 1 && (
-              <div
-                className={`
-                  w-4 h-px mx-0.5 transition-all duration-300
-                  ${isComplete ? "bg-accent-success" : "bg-bg-border"}
-                `}
-              />
+              <div className="relative w-4 h-px mx-0.5 bg-bg-border overflow-hidden">
+                <div
+                  className="absolute inset-0 bg-accent-success origin-left transition-transform duration-500 ease-out"
+                  style={{ transform: isComplete ? "scaleX(1)" : "scaleX(0)" }}
+                />
+              </div>
             )}
           </div>
         );

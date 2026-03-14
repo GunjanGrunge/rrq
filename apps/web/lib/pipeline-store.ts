@@ -37,6 +37,7 @@ export interface BriefData {
   qualityThreshold: number;
   chatMessages: ChatMessage[];
   directorMode: boolean;
+  voiceMode: "ai" | "self"; // "ai" = ElevenLabs, "self" = user records own voice
 }
 
 const INITIAL_GATE: ApprovalGateState = {

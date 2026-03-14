@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
+import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -98,8 +99,18 @@ export async function POST(req: Request) {
   const threshold = qualityThreshold ?? 7;
   const currentAttempt = attempt ?? 1;
 
-  try {
-    const userPrompt = `Score this YouTube video content across all 7 quality dimensions.
+  const { stream, emit, done } = createSSEStream();
+
+  (async () => {
+    try {
+      // Stage 0 — read the content
+      emit({ type: "status_line", message: "Vera is reading everything…" });
+      await new Promise(r => setTimeout(r, 50));
+      emit({ type: "stage_complete", stageIndex: 0 });
+
+      // Stage 1 — build scoring prompt
+      emit({ type: "status_line", message: "Vera is scoring each dimension…" });
+      const userPrompt = `Score this YouTube video content across all 7 quality dimensions.
 
 ## Quality Threshold
 User's minimum acceptable score: ${threshold}/10
@@ -137,42 +148,45 @@ Expected CTR: ${seoOutput.expectedCTR}
    - uniquenessAutoReject → "REJECT" (regardless of attempt)
 
 Score now.`;
+      emit({ type: "stage_complete", stageIndex: 1 });
 
-    const result = await callBedrockJSON<QualityGateOutput>({
-      model: "haiku",
-      systemPrompt: QUALITY_SYSTEM_PROMPT,
-      userPrompt,
-      maxTokens: 2048,
-      temperature: 0.3,
-      enableCache: true,
-    });
+      // Stage 2 — Bedrock score
+      emit({ type: "status_line", message: "Vera is writing her verdict…" });
+      const result = await callBedrockJSON<QualityGateOutput>({
+        model: "haiku",
+        systemPrompt: QUALITY_SYSTEM_PROMPT,
+        userPrompt,
+        maxTokens: 2048,
+        temperature: 0.3,
+        enableCache: true,
+      });
+      emit({ type: "stage_complete", stageIndex: 2 });
 
-    // Enforce uniqueness auto-reject on the server side as a safety net
-    if (result.scores.uniquenessScore < 5.0) {
-      result.uniquenessAutoReject = true;
-      result.recommendation = "REJECT";
-    }
-
-    // Enforce attempt-based decision logic
-    if (!result.uniquenessAutoReject) {
-      if (result.overall >= threshold) {
-        result.recommendation = "PROCEED";
-      } else if (currentAttempt >= 2) {
+      // Stage 3 — server-side enforcement
+      emit({ type: "status_line", message: "Vera is reviewing the final call…" });
+      if (result.scores.uniquenessScore < 5.0) {
+        result.uniquenessAutoReject = true;
         result.recommendation = "REJECT";
-      } else {
-        result.recommendation = "REWRITE";
       }
-    }
+      if (!result.uniquenessAutoReject) {
+        if (result.overall >= threshold) {
+          result.recommendation = "PROCEED";
+        } else if (currentAttempt >= 2) {
+          result.recommendation = "REJECT";
+        } else {
+          result.recommendation = "REWRITE";
+        }
+      }
+      emit({ type: "stage_complete", stageIndex: 3 });
 
-    return Response.json({ success: true, data: result });
-  } catch (error) {
-    console.error("[quality] Pipeline error:", error);
-    return Response.json(
-      {
-        error: "Quality gate scoring failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
+      emit({ type: "result", data: result });
+    } catch (error) {
+      console.error("[quality] Pipeline error:", error);
+      emit({ type: "error", error: error instanceof Error ? error.message : "Quality gate scoring failed" });
+    } finally {
+      done();
+    }
+  })();
+
+  return new Response(stream, { headers: SSE_HEADERS });
 }

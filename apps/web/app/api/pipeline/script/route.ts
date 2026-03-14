@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
+import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
 import type { ResearchOutput, ScriptOutput } from "@/lib/types/pipeline";
 
 // ─── Script system prompt ───────────────────────────────────────────────────
@@ -72,10 +73,20 @@ export async function POST(req: Request) {
     return Response.json({ error: "Research output is required" }, { status: 400 });
   }
 
-  try {
-    const targetWords = Math.round(duration * 140);
+  const { stream, emit, done } = createSSEStream();
 
-    const userPrompt = `Write a complete YouTube script based on this research brief.
+  (async () => {
+    try {
+      // Stage 0 — review the research
+      emit({ type: "status_line", message: "MUSE is studying Rex's brief…" });
+      const targetWords = Math.round(duration * 140);
+      // Small async yield so the client receives the first status line before the heavy work
+      await new Promise(r => setTimeout(r, 50));
+      emit({ type: "stage_complete", stageIndex: 0 });
+
+      // Stage 1 — build the prompt (structure design)
+      emit({ type: "status_line", message: "MUSE is mapping the story arc…" });
+      const userPrompt = `Write a complete YouTube script based on this research brief.
 
 TARGET DURATION: ${duration} minutes (~${targetWords} words)
 TONE: ${tone}
@@ -93,25 +104,28 @@ Write the full script now. Ensure:
 - Chapter timestamps match section lengths
 - Include [PAUSE] markers at impactful moments
 - Select voice gender and style based on topic context`;
+      emit({ type: "stage_complete", stageIndex: 1 });
 
-    const script = await callBedrockJSON<ScriptOutput>({
-      model: "opus",
-      systemPrompt: SCRIPT_SYSTEM_PROMPT,
-      userPrompt,
-      maxTokens: 12000,
-      temperature: 0.7,
-      enableCache: true,
-    });
+      // Stage 2 — Bedrock write
+      emit({ type: "status_line", message: "MUSE is writing…" });
+      const script = await callBedrockJSON<ScriptOutput>({
+        model: "opus",
+        systemPrompt: SCRIPT_SYSTEM_PROMPT,
+        userPrompt,
+        maxTokens: 12000,
+        temperature: 0.7,
+        enableCache: true,
+      });
+      emit({ type: "stage_complete", stageIndex: 2 });
 
-    return Response.json({ success: true, data: script });
-  } catch (error) {
-    console.error("[script] Pipeline error:", error);
-    return Response.json(
-      {
-        error: "Script generation failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
+      emit({ type: "result", data: script });
+    } catch (error) {
+      console.error("[script] Pipeline error:", error);
+      emit({ type: "error", error: error instanceof Error ? error.message : "Script generation failed" });
+    } finally {
+      done();
+    }
+  })();
+
+  return new Response(stream, { headers: SSE_HEADERS });
 }

@@ -87,6 +87,7 @@ export default function Sidebar() {
 
   const plan = (user?.publicMetadata?.plan as string) ?? "free";
   const directorMode = brief?.directorMode ?? false;
+  const anyRunning = Object.values(stepStatuses).some((s) => s === "running");
 
   const entries = injectGates(PIPELINE_STEPS, approvalGates, directorMode);
 
@@ -107,6 +108,10 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <aside className="w-60 bg-bg-surface border-r border-bg-border flex flex-col h-full overflow-y-auto">
+      {/* Running indicator bar */}
+      {anyRunning && (
+        <div className="h-0.5 w-full bg-accent-primary animate-pulse shrink-0" />
+      )}
       {/* Plan badge */}
       <div className="px-4 py-3 border-b border-bg-border flex items-center justify-between">
         {isLoaded ? (
@@ -227,9 +232,16 @@ export default function Sidebar() {
                 <span className="font-dm-mono text-[11px] text-text-tertiary w-4 shrink-0">
                   {String(entry.number).padStart(2, "0")}
                 </span>
-                <span className="font-syne text-xs font-500">
-                  {entry.label}
-                </span>
+                <div className="flex flex-col">
+                  <span className="font-syne text-xs font-500">
+                    {entry.label}
+                  </span>
+                  {status === "running" && (
+                    <span className="font-dm-mono text-[9px] text-accent-primary tracking-wider animate-pulse">
+                      Running now
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-2">

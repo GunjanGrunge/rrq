@@ -81,6 +81,7 @@ export default function CreatePage() {
   const [shortsType, setShortsType] = useState<"convert" | "fresh">("convert");
   const [qualityThreshold] = useState(7);
   const [directorMode, setDirectorMode] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<"ai" | "self">("ai");
   const [isStarting, setIsStarting] = useState(false);
 
   // Chat state
@@ -163,6 +164,7 @@ export default function CreatePage() {
       qualityThreshold,
       chatMessages,
       directorMode,
+      voiceMode,
     });
     startJob(jobId);
     setStep(2);
@@ -453,6 +455,60 @@ export default function CreatePage() {
                 </button>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* Voice */}
+        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
+          <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase block mb-4">
+            Voice
+          </span>
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              {
+                value: "ai" as const,
+                label: "AI Voice",
+                desc: "ARIA picks the right voice and tone for your video. Hands-free.",
+              },
+              {
+                value: "self" as const,
+                label: "My Voice",
+                desc: "Record and upload your own voiceover. AI writes the script, you deliver it.",
+              },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setVoiceMode(opt.value)}
+                className={`
+                  flex items-center justify-between px-4 py-3 border text-left transition-all duration-150
+                  ${voiceMode === opt.value
+                    ? "border-accent-primary bg-accent-primary/5"
+                    : "border-bg-border hover:border-bg-border-hover"
+                  }
+                `}
+              >
+                <div>
+                  <span className={`font-dm-mono text-xs tracking-wider ${
+                    voiceMode === opt.value ? "text-accent-primary" : "text-text-primary"
+                  }`}>
+                    {opt.label}
+                  </span>
+                  <span className="font-lora text-xs text-text-tertiary ml-3">{opt.desc}</span>
+                </div>
+                {voiceMode === opt.value && (
+                  <div className="w-4 h-4 rounded-sm border border-accent-primary bg-accent-primary flex items-center justify-center shrink-0">
+                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                      <path d="M1 3.5L3 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+          {voiceMode === "self" && (
+            <p className="font-dm-mono text-[10px] text-accent-primary mt-3">
+              You&apos;ll be prompted to upload your recording at the audio step.
+            </p>
           )}
         </div>
 

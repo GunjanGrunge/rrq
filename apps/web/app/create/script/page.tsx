@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
+import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -10,6 +11,13 @@ import type {
   DisplayMode,
 } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
+import StepProgressCard from "@/components/pipeline/StepProgressCard";
+
+const SCRIPT_STAGES = [
+  "Reviewing the research",
+  "Designing the structure",
+  "Writing the script",
+];
 
 const SECTION_COLORS: Record<string, string> = {
   hook: "border-l-amber-500",
@@ -46,10 +54,10 @@ export default function ScriptPage() {
   const [script, setScript] = useState<ScriptOutput | null>(
     (outputs[2] as ScriptOutput) ?? null
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState(0);
   const [editMode, setEditMode] = useState(false);
+  const { completedStages, statusLine, isRunning, consume, reset } = useStepProgress();
 
   useEffect(() => {
     setStep(2);
@@ -57,38 +65,27 @@ export default function ScriptPage() {
 
   async function runScript() {
     if (!brief || !researchOutput) return;
-    setLoading(true);
+    reset();
     setError(null);
     setStepStatus(2, "running");
 
-    try {
-      const res = await fetch("/api/pipeline/script", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          researchOutput,
-          duration: brief.duration,
-          tone: brief.tone,
-          generateShorts: brief.generateShorts,
-          shortsType: brief.shortsType,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error ?? "Script failed");
-
-      setScript(data.data);
-      setStepOutput(2, data.data);
-      setStepStatus(2, "complete");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStepStatus(2, "error");
-    } finally {
-      setLoading(false);
-    }
+    await consume<ScriptOutput>(
+      "/api/pipeline/script",
+      { researchOutput, duration: brief.duration, tone: brief.tone, generateShorts: brief.generateShorts, shortsType: brief.shortsType },
+      (data) => {
+        setScript(data);
+        setStepOutput(2, data);
+        setStepStatus(2, "complete");
+      },
+      (msg) => {
+        setError(msg);
+        setStepStatus(2, "error");
+      },
+    );
   }
 
   useEffect(() => {
-    if (researchOutput && !script && !loading) {
+    if (researchOutput && !script && !isRunning) {
       runScript();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,7 +132,7 @@ export default function ScriptPage() {
             </button>
           )}
           <StatusPill
-            status={loading ? "running" : script ? "complete" : "ready"}
+            status={isRunning ? "running" : script ? "complete" : "ready"}
           />
         </div>
       </div>
@@ -152,15 +149,12 @@ export default function ScriptPage() {
         </div>
       )}
 
-      {loading && !script && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-dm-mono text-sm text-text-secondary animate-pulse">
-              Writing script...
-            </p>
-          </div>
-        </div>
+      {isRunning && !script && (
+        <StepProgressCard
+          stages={SCRIPT_STAGES}
+          completedStages={completedStages}
+          statusLine={statusLine}
+        />
       )}
 
       {script && (

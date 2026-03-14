@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
+import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -10,6 +11,13 @@ import type {
 } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
 import MetadataChip from "@/components/ui/MetadataChip";
+import StepProgressCard from "@/components/pipeline/StepProgressCard";
+
+const SEO_STAGES = [
+  "Studying the content",
+  "Crafting the titles",
+  "Finalising metadata",
+];
 
 export default function SEOPage() {
   const { brief, setStep, setStepStatus, setStepOutput, outputs } =
@@ -20,8 +28,8 @@ export default function SEOPage() {
   const [seo, setSeo] = useState<SEOOutput | null>(
     (outputs[3] as SEOOutput) ?? null
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { completedStages, statusLine, isRunning, consume, reset } = useStepProgress();
 
   useEffect(() => {
     setStep(3);
@@ -29,36 +37,27 @@ export default function SEOPage() {
 
   async function runSEO() {
     if (!researchOutput || !scriptOutput) return;
-    setLoading(true);
+    reset();
     setError(null);
     setStepStatus(3, "running");
 
-    try {
-      const res = await fetch("/api/pipeline/seo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          researchOutput,
-          scriptOutput,
-          generateShorts: brief?.generateShorts ?? false,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error ?? "SEO failed");
-
-      setSeo(data.data);
-      setStepOutput(3, data.data);
-      setStepStatus(3, "complete");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStepStatus(3, "error");
-    } finally {
-      setLoading(false);
-    }
+    await consume<SEOOutput>(
+      "/api/pipeline/seo",
+      { researchOutput, scriptOutput, generateShorts: brief?.generateShorts ?? false },
+      (data) => {
+        setSeo(data);
+        setStepOutput(3, data);
+        setStepStatus(3, "complete");
+      },
+      (msg) => {
+        setError(msg);
+        setStepStatus(3, "error");
+      },
+    );
   }
 
   useEffect(() => {
-    if (researchOutput && scriptOutput && !seo && !loading) {
+    if (researchOutput && scriptOutput && !seo && !isRunning) {
       runSEO();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,7 +85,7 @@ export default function SEOPage() {
           </p>
         </div>
         <StatusPill
-          status={loading ? "running" : seo ? "complete" : "ready"}
+          status={isRunning ? "running" : seo ? "complete" : "ready"}
         />
       </div>
 
@@ -102,15 +101,12 @@ export default function SEOPage() {
         </div>
       )}
 
-      {loading && !seo && (
-        <div className="flex-1 flex items-center justify-center py-20">
-          <div className="text-center">
-            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-dm-mono text-sm text-text-secondary animate-pulse">
-              Optimising SEO...
-            </p>
-          </div>
-        </div>
+      {isRunning && !seo && (
+        <StepProgressCard
+          stages={SEO_STAGES}
+          completedStages={completedStages}
+          statusLine={statusLine}
+        />
       )}
 
       {seo && (

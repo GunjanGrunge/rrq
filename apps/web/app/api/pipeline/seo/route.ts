@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
+import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
 import type { ResearchOutput, ScriptOutput, SEOOutput } from "@/lib/types/pipeline";
 
 // ─── SEO system prompt (Sonnet for titles + descriptions) ───────────────────
@@ -85,8 +86,18 @@ export async function POST(req: Request) {
     );
   }
 
-  try {
-    const userPrompt = `Optimise YouTube SEO for this video.
+  const { stream, emit, done } = createSSEStream();
+
+  (async () => {
+    try {
+      // Stage 0 — read the content
+      emit({ type: "status_line", message: "Regum is reading the script…" });
+      await new Promise(r => setTimeout(r, 50));
+      emit({ type: "stage_complete", stageIndex: 0 });
+
+      // Stage 1 — craft titles (build prompt)
+      emit({ type: "status_line", message: "Regum is writing title options…" });
+      const userPrompt = `Optimise YouTube SEO for this video.
 
 ## Research Brief (keywords, audience, competitor gap)
 ${JSON.stringify(
@@ -112,25 +123,28 @@ Chapters: ${scriptOutput.chapters.map((c) => `${c.timestamp} ${c.label}`).join("
 ${generateShorts ? "ALSO GENERATE: Shorts SEO metadata (title < 40 chars, description, hashtags including #Shorts, schedule 2-3 hrs before main)" : "No Shorts metadata needed."}
 
 Generate the complete SEO metadata now.`;
+      emit({ type: "stage_complete", stageIndex: 1 });
 
-    const seo = await callBedrockJSON<SEOOutput>({
-      model: "sonnet",
-      systemPrompt: SEO_SYSTEM_PROMPT,
-      userPrompt,
-      maxTokens: 4096,
-      temperature: 0.6,
-      enableCache: true,
-    });
+      // Stage 2 — Bedrock finalise
+      emit({ type: "status_line", message: "Regum is locking in the details…" });
+      const seo = await callBedrockJSON<SEOOutput>({
+        model: "sonnet",
+        systemPrompt: SEO_SYSTEM_PROMPT,
+        userPrompt,
+        maxTokens: 4096,
+        temperature: 0.6,
+        enableCache: true,
+      });
+      emit({ type: "stage_complete", stageIndex: 2 });
 
-    return Response.json({ success: true, data: seo });
-  } catch (error) {
-    console.error("[seo] Pipeline error:", error);
-    return Response.json(
-      {
-        error: "SEO generation failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
+      emit({ type: "result", data: seo });
+    } catch (error) {
+      console.error("[seo] Pipeline error:", error);
+      emit({ type: "error", error: error instanceof Error ? error.message : "SEO generation failed" });
+    } finally {
+      done();
+    }
+  })();
+
+  return new Response(stream, { headers: SSE_HEADERS });
 }

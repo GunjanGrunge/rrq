@@ -2,9 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { usePipelineStore } from "@/lib/pipeline-store";
+import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type { ResearchOutput, SEOTitle, KeyFact } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
 import MetadataChip from "@/components/ui/MetadataChip";
+import StepProgressCard from "@/components/pipeline/StepProgressCard";
+
+const RESEARCH_STAGES = [
+  "Scouting the landscape",
+  "Reading the room",
+  "Building the brief",
+];
 
 export default function ResearchPage() {
   const { brief, setStep, setStepStatus, setStepOutput, outputs } =
@@ -12,10 +20,10 @@ export default function ResearchPage() {
   const [research, setResearch] = useState<ResearchOutput | null>(
     (outputs[1] as ResearchOutput) ?? null
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTitle, setSelectedTitle] = useState<number>(0);
   const [visibleCards, setVisibleCards] = useState(0);
+  const { completedStages, statusLine, isRunning, consume, reset } = useStepProgress();
 
   useEffect(() => {
     setStep(1);
@@ -40,37 +48,28 @@ export default function ResearchPage() {
 
   async function runResearch() {
     if (!brief) return;
-    setLoading(true);
+    reset();
     setError(null);
     setStepStatus(1, "running");
 
-    try {
-      const res = await fetch("/api/pipeline/research", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: brief.topic,
-          duration: brief.duration,
-          tone: brief.tone,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error ?? "Research failed");
-
-      setResearch(data.data);
-      setStepOutput(1, data.data);
-      setStepStatus(1, "complete");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setStepStatus(1, "error");
-    } finally {
-      setLoading(false);
-    }
+    await consume<ResearchOutput>(
+      "/api/pipeline/research",
+      { topic: brief.topic, duration: brief.duration, tone: brief.tone },
+      (data) => {
+        setResearch(data);
+        setStepOutput(1, data);
+        setStepStatus(1, "complete");
+      },
+      (msg) => {
+        setError(msg);
+        setStepStatus(1, "error");
+      },
+    );
   }
 
   // Auto-run if brief exists and no output yet
   useEffect(() => {
-    if (brief && !research && !loading) {
+    if (brief && !research && !isRunning) {
       runResearch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,7 +97,7 @@ export default function ResearchPage() {
             {brief.topic}
           </p>
         </div>
-        <StatusPill status={loading ? "running" : research ? "complete" : "ready"} />
+        <StatusPill status={isRunning ? "running" : research ? "complete" : "ready"} />
       </div>
 
       {error && (
@@ -113,15 +112,12 @@ export default function ResearchPage() {
         </div>
       )}
 
-      {loading && !research && (
-        <div className="flex-1 flex items-center justify-center py-20">
-          <div className="text-center">
-            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="font-dm-mono text-sm text-text-secondary animate-pulse">
-              Researching...
-            </p>
-          </div>
-        </div>
+      {isRunning && !research && (
+        <StepProgressCard
+          stages={RESEARCH_STAGES}
+          completedStages={completedStages}
+          statusLine={statusLine}
+        />
       )}
 
       {research && (
