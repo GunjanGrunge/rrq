@@ -26,6 +26,18 @@ export interface PipelineStep {
   status: StepStatus;
 }
 
+export interface RexScoreDimension {
+  score: number;
+  note: string;
+}
+
+export interface RexScoreData {
+  overall: number;
+  verdict: "STRONG" | "SOLID" | "RISKY";
+  dimensions: Record<string, RexScoreDimension>;
+  recommendation: string;
+}
+
 export interface BriefData {
   topic: string;
   duration: number;
@@ -38,6 +50,7 @@ export interface BriefData {
   chatMessages: ChatMessage[];
   directorMode: boolean;
   voiceMode: "ai" | "self";
+  rexScore?: RexScoreData;
 }
 
 const INITIAL_GATE: ApprovalGateState = {

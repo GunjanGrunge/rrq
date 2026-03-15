@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useUIStore } from "@/lib/ui-store";
-import { Zap, ChevronRight, X, Inbox, Plus, Trash2 } from "lucide-react";
+import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2 } from "lucide-react";
 import StatusPill from "@/components/ui/StatusPill";
 import type { GateId, GateStatus, SessionState } from "@/lib/pipeline-store";
 
@@ -117,6 +117,8 @@ export default function Sidebar() {
   } = usePipelineStore();
 
   const { sidebarOpen, closeSidebar } = useUIStore();
+
+  const [stepsCollapsed, setStepsCollapsed] = useState(false);
 
   const plan = (user?.publicMetadata?.plan as string) ?? "free";
   const directorMode = brief?.directorMode ?? false;
@@ -230,7 +232,7 @@ export default function Sidebar() {
       {/* Sessions */}
       <div className="border-b border-bg-border">
         <div className="px-4 py-2 flex items-center justify-between">
-          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
             Clips
           </span>
           <button
@@ -299,13 +301,65 @@ export default function Sidebar() {
 
       {/* Pipeline steps (for active session) */}
       <div className="flex-1 py-2">
-        <div className="px-4 py-2">
-          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
-            Pipeline
+        {/* Steps header — click to collapse/expand */}
+        <button
+          onClick={() => setStepsCollapsed((c) => !c)}
+          className="w-full px-4 py-2 flex items-center justify-between group"
+        >
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
+            Steps
           </span>
-        </div>
+          <div className="flex items-center gap-2">
+            {stepsCollapsed && pendingGate && (
+              <span className="font-dm-mono text-[9px] text-accent-primary animate-pulse tracking-wider">
+                ◆ Approval
+              </span>
+            )}
+            {stepsCollapsed && !pendingGate && anyRunning && (
+              <span className="font-dm-mono text-[9px] text-accent-primary animate-pulse tracking-wider">
+                Step {currentStep}
+              </span>
+            )}
+            {stepsCollapsed ? (
+              <ChevronRight size={11} className="text-text-tertiary group-hover:text-text-secondary transition-colors" />
+            ) : (
+              <ChevronDown size={11} className="text-text-tertiary group-hover:text-text-secondary transition-colors" />
+            )}
+          </div>
+        </button>
 
-        {entries.map((entry) => {
+        {/* Collapsed summary — shows current step or pending gate */}
+        {stepsCollapsed && (
+          <div className="px-4 py-2">
+            {pendingGate ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-accent-primary/5 border border-accent-primary/30">
+                <span className="text-[10px] text-accent-primary animate-pulse">◆</span>
+                <div>
+                  <span className="font-lora text-xs italic text-accent-primary block">Your Approval</span>
+                  <span className="font-dm-mono text-[9px] text-text-tertiary">Director Gate pending</span>
+                </div>
+              </div>
+            ) : currentStep > 0 ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-bg-elevated border border-bg-border">
+                <span className="font-dm-mono text-[10px] text-text-tertiary w-4">
+                  {String(currentStep).padStart(2, "0")}
+                </span>
+                <div>
+                  <span className="font-syne text-xs text-text-primary block">
+                    {PIPELINE_STEPS.find((s) => s.number === currentStep)?.label ?? `Step ${currentStep}`}
+                  </span>
+                  {anyRunning && (
+                    <span className="font-dm-mono text-[9px] text-accent-primary animate-pulse">Running now</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <span className="font-dm-mono text-[10px] text-text-tertiary px-1">No active step</span>
+            )}
+          </div>
+        )}
+
+        {!stepsCollapsed && entries.map((entry) => {
           if (entry.type === "gate") {
             const isPending = entry.status === "pending";
             const isApproved = entry.status === "approved";

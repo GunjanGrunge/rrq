@@ -12,12 +12,32 @@ export default function StepProgressCard({
   statusLine,
 }: StepProgressCardProps) {
   const completedSet = new Set(completedStages);
-  // The active stage is the first one not yet completed
   const activeStage = stages.findIndex((_, i) => !completedSet.has(i));
+  const progressPct = stages.length > 0
+    ? Math.round((completedStages.length / stages.length) * 100)
+    : 0;
 
   return (
-    <div className="flex-1 flex items-center justify-center py-20">
+    <div className="w-full py-16 flex justify-center">
       <div className="w-full max-w-sm">
+        {/* Progress bar */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+              Progress
+            </span>
+            <span className="font-dm-mono text-[10px] text-accent-primary">
+              {progressPct}%
+            </span>
+          </div>
+          <div className="h-px bg-bg-elevated w-full overflow-hidden">
+            <div
+              className="h-full bg-accent-primary transition-all duration-500 ease-out"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+
         {/* Checklist */}
         <div className="space-y-3 mb-6">
           {stages.map((label, i) => {
@@ -26,7 +46,6 @@ export default function StepProgressCard({
 
             return (
               <div key={i} className="flex items-center gap-3">
-                {/* Checkbox */}
                 <div
                   className={`
                     w-4 h-4 rounded-sm border flex items-center justify-center shrink-0
@@ -53,7 +72,6 @@ export default function StepProgressCard({
                   )}
                 </div>
 
-                {/* Label */}
                 <span
                   className={`
                     font-dm-mono text-xs transition-colors duration-300
@@ -61,7 +79,7 @@ export default function StepProgressCard({
                       ? "text-text-tertiary line-through"
                       : isActive
                       ? "text-text-primary"
-                      : "text-text-secondary"
+                      : "text-text-secondary opacity-50"
                     }
                   `}
                 >
@@ -72,7 +90,7 @@ export default function StepProgressCard({
           })}
         </div>
 
-        {/* Typewriter status line */}
+        {/* Status line */}
         {statusLine && (
           <div className="flex items-center gap-1 pl-1">
             <span className="font-lora text-sm text-accent-primary italic">

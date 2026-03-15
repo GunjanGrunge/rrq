@@ -13,10 +13,10 @@ import StatusPill from "@/components/ui/StatusPill";
 import StepProgressCard from "@/components/pipeline/StepProgressCard";
 
 const QUALITY_STAGES = [
-  "Reading the content",
-  "Scoring each dimension",
-  "Writing the verdict",
-  "Reviewing the final call",
+  "Content read + facts verified live",
+  "All 7 dimensions scored",
+  "Verdict written by Vera",
+  "Final recommendation locked",
 ];
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -30,7 +30,7 @@ const DIMENSION_LABELS: Record<string, string> = {
 };
 
 export default function QualityPage() {
-  const { brief, setStep, setStepStatus, setStepOutput, outputs } =
+  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses } =
     usePipelineStore();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
   const scriptOutput = outputs[2] as ScriptOutput | undefined;
@@ -40,15 +40,15 @@ export default function QualityPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(1);
+  const [hydrated, setHydrated] = useState(false);
   const { completedStages, statusLine, isRunning, consume, reset } = useStepProgress();
-  const [animatedScores, setAnimatedScores] = useState<Record<string, number>>(
-    {}
-  );
+  const [animatedScores, setAnimatedScores] = useState<Record<string, number>>({});
   const [visibleRows, setVisibleRows] = useState(0);
   const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
     setStep(4);
+    setHydrated(true);
   }, [setStep]);
 
   async function runQuality(currentAttempt: number) {
@@ -74,7 +74,6 @@ export default function QualityPage() {
   }
 
   function animateScores(result: QualityGateOutput) {
-    // Cascade rows in with 80ms stagger
     const dimensions = Object.keys(result.scores);
     let row = 0;
     const rowInterval = setInterval(() => {
@@ -83,7 +82,6 @@ export default function QualityPage() {
       if (row >= dimensions.length) clearInterval(rowInterval);
     }, 80);
 
-    // Animate score counters from 0 to final value
     const startTime = Date.now();
     const duration = 800;
     const targets = result.scores;
@@ -91,7 +89,7 @@ export default function QualityPage() {
     function tick() {
       const elapsed = Date.now() - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
 
       const current: Record<string, number> = {};
       for (const [key, value] of Object.entries(targets)) {
@@ -106,12 +104,22 @@ export default function QualityPage() {
     animationRef.current = requestAnimationFrame(tick);
   }
 
+  // Sync local state from store after Zustand rehydration
   useEffect(() => {
-    if (researchOutput && scriptOutput && seoOutput && !quality && !isRunning) {
+    if (hydrated && outputs[4] && !quality) {
+      const stored = outputs[4] as QualityGateOutput;
+      setQuality(stored);
+      animateScores(stored);
+    }
+  }, [hydrated, outputs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (researchOutput && scriptOutput && seoOutput && !quality && !isRunning && stepStatuses[4] !== "complete") {
       runQuality(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [researchOutput, scriptOutput, seoOutput]);
+  }, [hydrated, researchOutput, scriptOutput, seoOutput]);
 
   useEffect(() => {
     return () => {
@@ -133,22 +141,17 @@ export default function QualityPage() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="font-syne text-xl font-bold text-text-primary">
-            Quality Gate
-          </h1>
+          <h1 className="font-syne text-xl font-bold text-text-primary">Quality Gate</h1>
           <p className="font-dm-mono text-xs text-text-secondary mt-1">
-            Attempt {attempt} of 2 — Threshold:{" "}
-            {brief?.qualityThreshold ?? 7}/10
+            Attempt {attempt} of 2 — Threshold: {brief?.qualityThreshold ?? 7}/10
           </p>
         </div>
-        <StatusPill
-          status={isRunning ? "running" : quality ? "complete" : "ready"}
-        />
+        <StatusPill status={isRunning ? "running" : quality ? "complete" : "ready"} />
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-md bg-accent-error/10 border border-accent-error/30">
-          <p className="font-dm-mono text-xs text-accent-error">{error}</p>
+        <div className="mb-4 p-4 rounded-md bg-accent-error/10 border border-accent-error/30">
+          <p className="font-dm-mono text-sm text-accent-error">{error}</p>
           <button
             onClick={() => runQuality(attempt)}
             className="mt-2 font-dm-mono text-xs text-accent-primary hover:underline"
@@ -197,7 +200,7 @@ export default function QualityPage() {
                         : "Quality Standard Not Met"}
                 </h2>
                 {quality.recommendation !== "PROCEED" && (
-                  <p className="font-dm-mono text-xs text-text-secondary mt-1">
+                  <p className="font-dm-mono text-sm text-text-secondary mt-1">
                     {quality.uniquenessAutoReject
                       ? "This video is too similar to existing content."
                       : `Best score: ${quality.overall.toFixed(1)} / Your threshold: ${brief?.qualityThreshold ?? 7}`}
@@ -215,24 +218,21 @@ export default function QualityPage() {
               return (
                 <div
                   key={key}
-                  className={`flex items-center justify-between px-6 py-3 border-b border-bg-border transition-all duration-200 ${
-                    visibleRows > i
-                      ? "opacity-100 translate-x-0"
-                      : "opacity-0 -translate-x-4"
+                  className={`flex items-start justify-between px-6 py-4 border-b border-bg-border transition-all duration-200 gap-4 ${
+                    visibleRows > i ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
                   }`}
                 >
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <span className="font-syne text-sm text-text-primary">
                       {DIMENSION_LABELS[key] ?? key}
                     </span>
                     {quality.feedback[key] && (
-                      <p className="font-dm-mono text-[10px] text-text-tertiary mt-0.5">
+                      <p className="font-dm-mono text-xs text-text-secondary mt-1 leading-relaxed break-words">
                         {quality.feedback[key]}
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-3">
-                    {/* Score bar */}
+                  <div className="flex items-center gap-3 flex-shrink-0">
                     <div className="w-24 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-800 ${
@@ -260,15 +260,12 @@ export default function QualityPage() {
           {/* Overall */}
           <div className="px-6 py-4 border border-bg-border rounded-b-lg bg-bg-surface">
             <div className="flex items-center justify-between">
-              <span className="font-syne text-lg font-bold text-text-primary">
-                OVERALL
-              </span>
+              <span className="font-syne text-lg font-bold text-text-primary">OVERALL</span>
               <span className="font-syne text-2xl font-bold text-accent-primary">
                 {quality.overall.toFixed(1)}{" "}
-                <span className="text-sm text-text-tertiary">/ 10</span>
+                <span className="text-sm text-text-secondary">/ 10</span>
               </span>
             </div>
-            {/* Overall bar */}
             <div className="w-full h-2 bg-bg-elevated rounded-full overflow-hidden mt-3">
               <div
                 className="h-full bg-accent-primary rounded-full transition-all duration-800"
@@ -292,7 +289,7 @@ export default function QualityPage() {
             )}
 
             {quality.recommendation === "REWRITE" && (
-              <p className="font-dm-mono text-xs text-accent-warning animate-pulse">
+              <p className="font-dm-mono text-sm text-accent-warning animate-pulse">
                 Auto-rewriting weak sections... (attempt 2)
               </p>
             )}
@@ -310,7 +307,6 @@ export default function QualityPage() {
                 </button>
                 <button
                   onClick={() => {
-                    // Re-run with lower threshold
                     setAttempt(1);
                     runQuality(1);
                   }}

@@ -21,7 +21,7 @@
   /* Text */
   --text-primary: #f0ece4;
   --text-secondary: #a8a09a;
-  --text-tertiary: #4a4540;
+  --text-tertiary: #6b6560;  /* raised from #4a4540 — was ~2:1 contrast, now ~3.5:1 on surface */
   --text-inverse: #0a0a0a;
 
   /* Transitions */

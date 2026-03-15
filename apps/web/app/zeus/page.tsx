@@ -67,7 +67,7 @@ export default function ZeusPage() {
       <div className="grid grid-cols-12 gap-0 flex-1 divide-x divide-bg-border overflow-hidden">
         {/* Left col — Agent cards (35%) */}
         <div className="col-span-4 p-6 overflow-y-auto">
-          <div className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase mb-4">
+          <div className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase mb-4">
             Agent Performance
           </div>
 
@@ -202,7 +202,7 @@ export default function ZeusPage() {
 
           {/* Live activity feed */}
           <div className="flex-1 p-6 overflow-y-auto">
-            <div className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase mb-4">
+            <div className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase mb-4">
               Live Activity
             </div>
 
@@ -239,7 +239,7 @@ export default function ZeusPage() {
         <div className="col-span-3 overflow-y-auto">
           {/* Rex watchlist */}
           <div className="p-6 border-b border-bg-border">
-            <div className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase mb-4">
+            <div className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase mb-4">
               Monitoring ({watchlist.length})
             </div>
 
@@ -279,7 +279,7 @@ export default function ZeusPage() {
 
           {/* Comment insights */}
           <div className="p-6 border-b border-bg-border">
-            <div className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase mb-4">
+            <div className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase mb-4">
               Comment Intelligence
             </div>
 
@@ -327,7 +327,7 @@ export default function ZeusPage() {
 
           {/* Memory log */}
           <div className="p-6">
-            <div className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase mb-4">
+            <div className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase mb-4">
               Recent Lessons
             </div>
 

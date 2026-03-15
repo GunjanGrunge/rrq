@@ -116,7 +116,7 @@ export default function ApproveScriptPage() {
             {/* Section nav */}
             <div className="bg-bg-surface border border-bg-border">
               <div className="px-4 py-2 border-b border-bg-border">
-                <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">Sections</span>
+                <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">Sections</span>
               </div>
               {script.sections.map((section: ScriptSection, i: number) => (
                 <button

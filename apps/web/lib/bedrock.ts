@@ -1,6 +1,7 @@
 import {
   BedrockRuntimeClient,
   InvokeModelCommand,
+  InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 
 // ─── Model IDs ──────────────────────────────────────────────────────────────
@@ -93,6 +94,63 @@ export async function callBedrock({
   }
 
   return textBlocks.map((b: { text: string }) => b.text).join("");
+}
+
+// ─── Streaming call helper ────────────────────────────────────────────────
+
+export async function callBedrockStream(
+  options: BedrockCallOptions
+): Promise<ReadableStream<Uint8Array>> {
+  const bedrock = getClient();
+
+  const now = new Date();
+  const dateContext = `Today's date: ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} (${now.getFullYear()}). Always use the current year in titles, dates, and comparisons — never use a past year.`;
+
+  const systemBlock: Record<string, unknown> = {
+    type: "text",
+    text: `${dateContext}\n\n${options.systemPrompt}`,
+  };
+
+  if (options.enableCache) {
+    systemBlock.cache_control = { type: "ephemeral" };
+  }
+
+  const body = JSON.stringify({
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: options.maxTokens ?? 8192,
+    temperature: options.temperature ?? 0.7,
+    system: [systemBlock],
+    messages: [{ role: "user", content: options.userPrompt }],
+  });
+
+  const command = new InvokeModelWithResponseStreamCommand({
+    modelId: MODELS[options.model],
+    contentType: "application/json",
+    accept: "application/json",
+    body: new TextEncoder().encode(body),
+  });
+
+  const response = await bedrock.send(command);
+  const stream = response.body;
+
+  if (!stream) throw new Error("No stream in Bedrock response");
+
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for await (const event of stream) {
+        if (event.chunk?.bytes) {
+          const chunk = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
+          if (chunk.type === "content_block_delta" && chunk.delta?.text) {
+            controller.enqueue(encoder.encode(chunk.delta.text));
+          }
+        }
+      }
+      controller.close();
+    },
+  });
+
+  return readable;
 }
 
 // ─── JSON extraction helper ────────────────────────────────────────────────

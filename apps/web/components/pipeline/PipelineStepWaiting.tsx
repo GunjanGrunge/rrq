@@ -69,7 +69,7 @@ export default function PipelineStepWaiting({
             }`}
           />
           <div>
-            <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-0.5">
+            <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-0.5">
               Waiting for
             </span>
             <span
@@ -87,7 +87,7 @@ export default function PipelineStepWaiting({
       {/* Sub-tasks checklist */}
       {subTasks && subTasks.length > 0 && (
         <div className="mb-6 bg-bg-surface border border-bg-border p-5">
-          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-4">
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-4">
             What happens here
           </span>
           <div className="space-y-3">
@@ -134,7 +134,7 @@ export default function PipelineStepWaiting({
       {/* Estimated time */}
       {estimatedTime && (
         <div className="flex items-center justify-between px-1">
-          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
             Estimated time
           </span>
           <span className="font-dm-mono text-xs text-accent-primary">

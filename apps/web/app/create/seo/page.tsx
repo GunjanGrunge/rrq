@@ -14,13 +14,13 @@ import MetadataChip from "@/components/ui/MetadataChip";
 import StepProgressCard from "@/components/pipeline/StepProgressCard";
 
 const SEO_STAGES = [
-  "Studying the content",
-  "Crafting the titles",
-  "Finalising metadata",
+  "Script and research absorbed",
+  "Title variants crafted",
+  "Full metadata locked by Regum",
 ];
 
 export default function SEOPage() {
-  const { brief, setStep, setStepStatus, setStepOutput, outputs } =
+  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses } =
     usePipelineStore();
   const { proceedAfterSEO, isDirectorMode } = useDirectorNavigation();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
@@ -29,10 +29,12 @@ export default function SEOPage() {
     (outputs[3] as SEOOutput) ?? null
   );
   const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const { completedStages, statusLine, isRunning, consume, reset } = useStepProgress();
 
   useEffect(() => {
     setStep(3);
+    setHydrated(true);
   }, [setStep]);
 
   async function runSEO() {
@@ -56,12 +58,20 @@ export default function SEOPage() {
     );
   }
 
+  // Sync local state from store after Zustand rehydration
   useEffect(() => {
-    if (researchOutput && scriptOutput && !seo && !isRunning) {
+    if (hydrated && outputs[3] && !seo) {
+      setSeo(outputs[3] as SEOOutput);
+    }
+  }, [hydrated, outputs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (researchOutput && scriptOutput && !seo && !isRunning && stepStatuses[3] !== "complete") {
       runSEO();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [researchOutput, scriptOutput]);
+  }, [hydrated, researchOutput, scriptOutput]);
 
   if (!researchOutput || !scriptOutput) {
     return (
@@ -77,21 +87,17 @@ export default function SEOPage() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="font-syne text-xl font-bold text-text-primary">
-            SEO Metadata
-          </h1>
+          <h1 className="font-syne text-xl font-bold text-text-primary">SEO Metadata</h1>
           <p className="font-dm-mono text-xs text-text-secondary mt-1">
             Optimised for maximum impressions and CTR
           </p>
         </div>
-        <StatusPill
-          status={isRunning ? "running" : seo ? "complete" : "ready"}
-        />
+        <StatusPill status={isRunning ? "running" : seo ? "complete" : "ready"} />
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-md bg-accent-error/10 border border-accent-error/30">
-          <p className="font-dm-mono text-xs text-accent-error">{error}</p>
+        <div className="mb-4 p-4 rounded-md bg-accent-error/10 border border-accent-error/30">
+          <p className="font-dm-mono text-sm text-accent-error">{error}</p>
           <button
             onClick={runSEO}
             className="mt-2 font-dm-mono text-xs text-accent-primary hover:underline"
@@ -113,45 +119,26 @@ export default function SEOPage() {
         <div className="space-y-6">
           {/* Final Title + Score */}
           <div className="p-4 rounded-md bg-bg-surface border border-accent-primary/30">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-syne text-sm font-bold text-accent-primary">
-                Final Title
-              </h3>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h3 className="font-syne text-sm font-bold text-accent-primary">Final Title</h3>
               <div className="flex items-center gap-2">
-                <MetadataChip
-                  label={`CTR: ${seo.expectedCTR}`}
-                  variant="keyword"
-                />
-                <MetadataChip
-                  label={`SEO: ${seo.seoStrengthScore}/10`}
-                  variant="tag"
-                />
+                <MetadataChip label={`CTR: ${seo.expectedCTR}`} variant="keyword" />
+                <MetadataChip label={`SEO: ${seo.seoStrengthScore}/10`} variant="tag" />
               </div>
             </div>
-            <p className="font-syne text-lg font-bold text-text-primary">
-              {seo.finalTitle}
-            </p>
+            <p className="font-syne text-lg font-bold text-text-primary break-words">{seo.finalTitle}</p>
           </div>
 
           {/* Title Variants */}
           <div>
-            <h3 className="font-syne text-sm font-bold text-text-primary mb-3">
-              Title Variants
-            </h3>
+            <h3 className="font-syne text-sm font-bold text-text-primary mb-3">Title Variants</h3>
             <div className="space-y-2">
               {seo.titleVariants.map((v, i) => (
-                <div
-                  key={i}
-                  className="p-3 rounded-md bg-bg-surface border border-bg-border"
-                >
-                  <p className="font-syne text-sm text-text-primary">
-                    {v.title}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
+                <div key={i} className="p-3 rounded-md bg-bg-surface border border-bg-border">
+                  <p className="font-syne text-sm text-text-primary break-words">{v.title}</p>
+                  <div className="flex items-start gap-2 mt-2 flex-wrap">
                     <MetadataChip label={v.formula} variant="tag" />
-                    <span className="font-dm-mono text-[10px] text-text-tertiary">
-                      {v.rationale}
-                    </span>
+                    <span className="font-dm-mono text-xs text-text-secondary leading-relaxed break-words">{v.rationale}</span>
                   </div>
                 </div>
               ))}
@@ -161,11 +148,9 @@ export default function SEOPage() {
           <div className="grid grid-cols-2 gap-6">
             {/* Description */}
             <div>
-              <h3 className="font-syne text-sm font-bold text-text-primary mb-2">
-                Description
-              </h3>
+              <h3 className="font-syne text-sm font-bold text-text-primary mb-2">Description</h3>
               <div className="p-3 rounded-md bg-bg-surface border border-bg-border max-h-60 overflow-y-auto">
-                <pre className="font-dm-mono text-xs text-text-secondary whitespace-pre-wrap">
+                <pre className="font-dm-mono text-xs text-text-secondary whitespace-pre-wrap break-words">
                   {seo.description}
                 </pre>
               </div>
@@ -173,16 +158,14 @@ export default function SEOPage() {
 
             {/* Chapters */}
             <div>
-              <h3 className="font-syne text-sm font-bold text-text-primary mb-2">
-                Chapters
-              </h3>
-              <div className="p-3 rounded-md bg-bg-surface border border-bg-border space-y-1">
+              <h3 className="font-syne text-sm font-bold text-text-primary mb-2">Chapters</h3>
+              <div className="p-3 rounded-md bg-bg-surface border border-bg-border space-y-1.5">
                 {seo.chapters.map((ch, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="font-dm-mono text-[10px] text-accent-primary w-10 shrink-0">
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="font-dm-mono text-xs text-accent-primary w-10 flex-shrink-0 mt-px">
                       {ch.timestamp}
                     </span>
-                    <span className="font-dm-mono text-xs text-text-secondary">
+                    <span className="font-dm-mono text-xs text-text-secondary break-words min-w-0">
                       {ch.label}
                     </span>
                   </div>
@@ -193,9 +176,7 @@ export default function SEOPage() {
 
           {/* Tags */}
           <div>
-            <h3 className="font-syne text-sm font-bold text-text-primary mb-2">
-              Tags
-            </h3>
+            <h3 className="font-syne text-sm font-bold text-text-primary mb-2">Tags</h3>
             <div className="flex flex-wrap gap-1.5">
               {seo.tags.map((tag) => (
                 <MetadataChip key={tag} label={tag} variant="tag" />
@@ -206,9 +187,7 @@ export default function SEOPage() {
           {/* Hashtags + Category + Schedule */}
           <div className="grid grid-cols-3 gap-4">
             <div className="p-3 rounded-md bg-bg-surface border border-bg-border">
-              <h4 className="font-syne text-xs font-bold text-text-primary mb-2">
-                Hashtags
-              </h4>
+              <h4 className="font-syne text-sm font-bold text-text-primary mb-2">Hashtags</h4>
               <div className="flex flex-wrap gap-1">
                 {seo.hashtags.map((h) => (
                   <MetadataChip key={h} label={h} variant="keyword" />
@@ -216,21 +195,15 @@ export default function SEOPage() {
               </div>
             </div>
             <div className="p-3 rounded-md bg-bg-surface border border-bg-border">
-              <h4 className="font-syne text-xs font-bold text-text-primary mb-2">
-                Category
-              </h4>
-              <p className="font-dm-mono text-xs text-text-primary">
-                {seo.category}
-              </p>
-              <p className="font-dm-mono text-[10px] text-text-tertiary mt-1">
+              <h4 className="font-syne text-sm font-bold text-text-primary mb-2">Category</h4>
+              <p className="font-dm-mono text-sm text-text-primary">{seo.category}</p>
+              <p className="font-dm-mono text-xs text-text-secondary mt-1.5">
                 Made for kids: {seo.madeForKids ? "Yes" : "No"}
               </p>
             </div>
             <div className="p-3 rounded-md bg-bg-surface border border-bg-border">
-              <h4 className="font-syne text-xs font-bold text-text-primary mb-2">
-                Scheduled Upload
-              </h4>
-              <p className="font-dm-mono text-xs text-text-primary">
+              <h4 className="font-syne text-sm font-bold text-text-primary mb-2">Scheduled Upload</h4>
+              <p className="font-dm-mono text-sm text-text-primary break-words">
                 {new Date(seo.scheduledTime).toLocaleString()}
               </p>
             </div>
@@ -238,22 +211,15 @@ export default function SEOPage() {
 
           {/* Thumbnail A/B */}
           <div>
-            <h3 className="font-syne text-sm font-bold text-text-primary mb-2">
-              Thumbnail A/B Variants
-            </h3>
+            <h3 className="font-syne text-sm font-bold text-text-primary mb-2">Thumbnail A/B Variants</h3>
             <div className="grid grid-cols-2 gap-3">
               {seo.thumbnailABVariants.map((v, i) => (
-                <div
-                  key={i}
-                  className="p-3 rounded-md bg-bg-surface border border-bg-border"
-                >
-                  <p className="font-syne text-xs font-bold text-text-primary mb-1">
+                <div key={i} className="p-3 rounded-md bg-bg-surface border border-bg-border">
+                  <p className="font-syne text-xs font-bold text-text-primary mb-2">
                     Variant {String.fromCharCode(65 + i)}
                   </p>
-                  <p className="font-dm-mono text-[10px] text-text-secondary">
-                    {v.concept}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
+                  <p className="font-dm-mono text-xs text-text-secondary leading-relaxed break-words mb-2">{v.concept}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
                     <MetadataChip label={v.emotion} variant="tag" />
                     <MetadataChip label={v.textOverlay} variant="keyword" />
                   </div>
@@ -265,26 +231,16 @@ export default function SEOPage() {
           {/* Shorts SEO */}
           {seo.shortsTitle && (
             <div className="p-4 rounded-md bg-bg-surface border border-bg-border">
-              <h3 className="font-syne text-sm font-bold text-text-primary mb-3">
-                Shorts SEO
-              </h3>
-              <div className="space-y-2">
+              <h3 className="font-syne text-sm font-bold text-text-primary mb-3">Shorts SEO</h3>
+              <div className="space-y-3">
                 <div>
-                  <span className="font-dm-mono text-[10px] text-text-tertiary">
-                    Title
-                  </span>
-                  <p className="font-dm-mono text-xs text-text-primary">
-                    {seo.shortsTitle}
-                  </p>
+                  <p className="font-dm-mono text-xs text-text-secondary uppercase tracking-wide mb-1">Title</p>
+                  <p className="font-dm-mono text-sm text-text-primary break-words">{seo.shortsTitle}</p>
                 </div>
                 {seo.shortsDescription && (
                   <div>
-                    <span className="font-dm-mono text-[10px] text-text-tertiary">
-                      Description
-                    </span>
-                    <p className="font-dm-mono text-xs text-text-secondary">
-                      {seo.shortsDescription}
-                    </p>
+                    <p className="font-dm-mono text-xs text-text-secondary uppercase tracking-wide mb-1">Description</p>
+                    <p className="font-dm-mono text-xs text-text-secondary leading-relaxed break-words">{seo.shortsDescription}</p>
                   </div>
                 )}
                 {seo.shortsHashtags && (
@@ -299,13 +255,9 @@ export default function SEOPage() {
           )}
 
           {/* SEO Notes */}
-          <div className="p-3 rounded-md bg-bg-surface border border-bg-border">
-            <h4 className="font-syne text-xs font-bold text-text-primary mb-1">
-              SEO Notes
-            </h4>
-            <p className="font-dm-mono text-[10px] text-text-secondary">
-              {seo.seoNotes}
-            </p>
+          <div className="p-4 rounded-md bg-bg-surface border border-bg-border">
+            <h4 className="font-syne text-sm font-bold text-text-primary mb-2">SEO Notes</h4>
+            <p className="font-dm-mono text-sm text-text-secondary leading-relaxed break-words">{seo.seoNotes}</p>
           </div>
         </div>
       )}

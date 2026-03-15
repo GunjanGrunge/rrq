@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
-import { ArrowRight, ChevronDown, Send, Loader2 } from "lucide-react";
+import type { RexScoreData } from "@/lib/pipeline-store";
+import { ArrowRight, ChevronDown, Send, Loader2, Lock } from "lucide-react";
 
 const TONES = [
   { value: "informative", label: "Informative", desc: "Clear, factual, educational" },
@@ -35,14 +36,10 @@ type NicheValue = (typeof NICHES)[number]["value"];
 interface ChatMessage {
   role: "zeus" | "user";
   content: string;
+  streaming?: boolean;
 }
 
-interface RexScore {
-  overall: number;
-  verdict: "STRONG" | "SOLID" | "RISKY";
-  dimensions: Record<string, { score: number; note: string }>;
-  recommendation: string;
-}
+type RexScore = RexScoreData;
 
 const DIMENSION_LABELS: Record<string, string> = {
   trendStrength: "Trend Strength",
@@ -52,16 +49,15 @@ const DIMENSION_LABELS: Record<string, string> = {
   contentUniqueness: "Uniqueness",
 };
 
-const ZEUS_OPENING = "Tell me about your video — what topic or idea do you have in mind?";
-
 export default function CreatePage() {
   const router = useRouter();
-  const { setBrief, brief: activeBrief, activeJobId, newSession: createNewSession, setStep } = usePipelineStore();
+  const { setBrief, brief: activeBrief, newSession: createNewSession, setStep } = usePipelineStore();
 
   const [topic, setTopic] = useState("");
   const [duration, setDuration] = useState(10);
   const [selectedTones, setSelectedTones] = useState<Tone[]>([]);
   const [selectedNiches, setSelectedNiches] = useState<NicheValue[]>([]);
+  const [nicheLocked, setNicheLocked] = useState(false);
   const [generateShorts, setGenerateShorts] = useState(false);
   const [shortsType, setShortsType] = useState<"convert" | "fresh">("convert");
   const [qualityThreshold] = useState(7);
@@ -71,29 +67,27 @@ export default function CreatePage() {
   const [isMidPipeline, setIsMidPipeline] = useState(false);
 
   // Chat state
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: "zeus", content: ZEUS_OPENING },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [topicConfirmed, setTopicConfirmed] = useState(false);
   const [zeusThinking, setZeusThinking] = useState(false);
   const [briefReady, setBriefReady] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const streamingRef = useRef(false);
 
-  // Rex score state
-  const [rexScore, setRexScore] = useState<RexScore | null>(null);
+  // Rex score state — initialised from persisted brief if available
+  const [rexScore, setRexScore] = useState<RexScore | null>(activeBrief?.rexScore ?? null);
   const [rexLoading, setRexLoading] = useState(false);
+  // Track if rex has already been triggered for this brief session
+  const rexTriggeredRef = useRef(false);
 
   useEffect(() => {
-    // Only create a session on first-ever visit (no sessions at all in store)
-    // Refresh or navigating back must NOT create a new session
     const { sessions } = usePipelineStore.getState();
     if (Object.keys(sessions).length === 0) {
       createNewSession();
     }
     setStep(0);
 
-    // Restore chat state when navigating back to this page
     const state = usePipelineStore.getState();
     const restoredBrief = state.brief;
     if (restoredBrief?.chatMessages && restoredBrief.chatMessages.length > 0) {
@@ -103,13 +97,17 @@ export default function CreatePage() {
       setBriefReady(true);
       setSelectedTones((restoredBrief.tones ?? []) as Tone[]);
       setSelectedNiches((restoredBrief.selectedNiches ?? []) as NicheValue[]);
+      setNicheLocked(true);
       setDuration(restoredBrief.duration ?? 10);
       setGenerateShorts(restoredBrief.generateShorts ?? false);
       setShortsType(restoredBrief.shortsType ?? "convert");
       setDirectorMode(restoredBrief.directorMode ?? false);
       setVoiceMode(restoredBrief.voiceMode ?? "ai");
+      if (restoredBrief.rexScore) {
+        setRexScore(restoredBrief.rexScore);
+      }
+      rexTriggeredRef.current = true;
 
-      // If pipeline already started, Zeus warns that going again resets everything
       const activeSession = state.sessions[state.activeJobId ?? ""];
       if (activeSession && activeSession.currentStep > 0) {
         setChatMessages((prev) => [
@@ -126,8 +124,10 @@ export default function CreatePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Scroll chat container (not page) whenever messages change
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [chatMessages, zeusThinking]);
 
   const estimatedWords = Math.round(duration * 150);
@@ -144,11 +144,126 @@ export default function CreatePage() {
     );
   }
 
+  // ── Streaming Zeus response ────────────────────────────────────────────────
+  const streamZeusReply = useCallback(async (
+    messages: ChatMessage[],
+    currentTopic: string,
+    currentNiches: NicheValue[],
+    currentTones: Tone[],
+    isOpening = false,
+  ) => {
+    if (streamingRef.current) return;
+    streamingRef.current = true;
+    setZeusThinking(true);
+
+    // Add an empty Zeus message that we'll fill in as tokens arrive
+    const placeholderIdx = messages.length;
+    setChatMessages((prev) => [...prev, { role: "zeus", content: "", streaming: true }]);
+
+    try {
+      const res = await fetch("/api/brief/zeus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages,
+          topic: currentTopic,
+          niche: currentNiches,
+          tone: currentTones,
+          isOpening,
+        }),
+      });
+
+      if (!res.body) throw new Error("No stream");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        accumulated += chunk;
+
+        // Update the streaming message in place — strip signals from display
+        const display = accumulated
+          .replace(/\[BRIEF_READY\]/g, "")
+          .replace(/\[NICHE_CHANGE:[^\]]*\]/g, "")
+          .replace(/\[TONE:[^\]]*\]/g, "")
+          .trim();
+
+        setChatMessages((prev) => {
+          const updated = [...prev];
+          updated[placeholderIdx] = { role: "zeus", content: display, streaming: true };
+          return updated;
+        });
+      }
+
+      // Stream complete — resolve signals from accumulated text
+      const briefReady = accumulated.includes("[BRIEF_READY]");
+      const nicheMatch = accumulated.match(/\[NICHE_CHANGE:\s*([^\]]+)\]/);
+      const finalDisplay = accumulated
+        .replace(/\[BRIEF_READY\]/g, "")
+        .replace(/\[NICHE_CHANGE:[^\]]*\]/g, "")
+        .replace(/\[TONE:[^\]]*\]/g, "")
+        .trim();
+
+      // Finalise the message (remove streaming flag)
+      setChatMessages((prev) => {
+        const updated = [...prev];
+        updated[placeholderIdx] = { role: "zeus", content: finalDisplay };
+        return updated;
+      });
+
+      if (nicheMatch) {
+        const suggestedNiche = nicheMatch[1].trim() as NicheValue;
+        const validNiche = NICHES.find((n) => n.value === suggestedNiche);
+        if (validNiche) {
+          setSelectedNiches([suggestedNiche]);
+        }
+      }
+
+      // Parse tone recommendation
+      const toneMatch = accumulated.match(/\[TONE:\s*([^\]]+)\]/);
+      if (toneMatch) {
+        const recommendedTones = toneMatch[1]
+          .split(",")
+          .map((t) => t.trim() as Tone)
+          .filter((t) => TONES.some((opt) => opt.value === t))
+          .slice(0, 2);
+        if (recommendedTones.length > 0) setSelectedTones(recommendedTones);
+      }
+
+      if (briefReady && !rexTriggeredRef.current) {
+        setBriefReady(true);
+        rexTriggeredRef.current = true;
+        runRexScore(currentTopic, messages);
+      }
+    } catch {
+      setChatMessages((prev) => {
+        const updated = [...prev];
+        updated[placeholderIdx] = { role: "zeus", content: "Something went wrong. Try again." };
+        return updated;
+      });
+    } finally {
+      streamingRef.current = false;
+      setZeusThinking(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Lock in niche ──────────────────────────────────────────────────────────
+  async function handleNicheLockIn() {
+    if (selectedNiches.length === 0 || nicheLocked) return;
+    setNicheLocked(true);
+    // Zeus comes online — send opening message
+    await streamZeusReply([], "", selectedNiches, selectedTones, true);
+  }
+
+  // ── Send chat message ──────────────────────────────────────────────────────
   async function handleChatSend() {
     const msg = chatInput.trim();
-    if (!msg || zeusThinking) return;
+    if (!msg || zeusThinking || streamingRef.current) return;
 
-    // First message sets topic
     if (!topicConfirmed) {
       setTopic(msg);
       setTopicConfirmed(true);
@@ -160,38 +275,8 @@ export default function CreatePage() {
     ];
     setChatMessages(updatedMessages);
     setChatInput("");
-    setZeusThinking(true);
 
-    try {
-      const res = await fetch("/api/brief/zeus", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: updatedMessages,
-          topic: topicConfirmed ? topic : msg,
-          niche: selectedNiches,
-          tone: selectedTones,
-        }),
-      });
-      const data = await res.json() as { content: string; briefReady: boolean };
-
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "zeus", content: data.content },
-      ]);
-
-      if (data.briefReady) {
-        setBriefReady(true);
-        runRexScore(topicConfirmed ? topic : msg, updatedMessages);
-      }
-    } catch {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "zeus", content: "Something went wrong. Try again." },
-      ]);
-    } finally {
-      setZeusThinking(false);
-    }
+    await streamZeusReply(updatedMessages, topicConfirmed ? topic : msg, selectedNiches, selectedTones);
   }
 
   async function runRexScore(resolvedTopic: string, messages: ChatMessage[]) {
@@ -214,8 +299,13 @@ export default function CreatePage() {
       });
       const score = await res.json() as RexScore;
       setRexScore(score);
+      // Persist into brief so it survives navigation
+      const currentBrief = usePipelineStore.getState().brief;
+      if (currentBrief) {
+        usePipelineStore.getState().setBrief({ ...currentBrief, rexScore: score });
+      }
     } catch {
-      // non-blocking — user can still proceed without Rex score
+      // non-blocking
     } finally {
       setRexLoading(false);
     }
@@ -234,9 +324,14 @@ export default function CreatePage() {
 
     const primaryTone = selectedTones[0] ?? "informative";
 
-    // Only create a new session if the active one already has a brief (i.e. it's mid-pipeline)
-    // If we arrived here via sidebar "New" button, a fresh empty session already exists
-    if (activeBrief !== null) {
+    // Only create a new session if the current session already has pipeline outputs
+    // (i.e. research or later steps ran). Going back and editing the brief reuses the session.
+    const currentState = usePipelineStore.getState();
+    const activeSession = currentState.activeJobId
+      ? currentState.sessions[currentState.activeJobId]
+      : null;
+    const hasOutputs = activeSession && Object.keys(activeSession.outputs).length > 0;
+    if (hasOutputs) {
       createNewSession();
     }
 
@@ -290,7 +385,7 @@ export default function CreatePage() {
 
         {/* Production Mode selector */}
         <div className="mb-8 bg-bg-surface border border-bg-border p-6">
-          <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase block mb-4">
+          <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase block mb-4">
             Production Mode
           </span>
           <div className="grid grid-cols-1 gap-2">
@@ -337,13 +432,82 @@ export default function CreatePage() {
           </div>
         </div>
 
-        {/* Zeus Chat */}
-        <div className="mb-8 bg-bg-surface border border-bg-border">
+        {/* ── Niche selector (pre-chat, with Lock In) ── */}
+        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase">
+              Niche
+            </span>
+            {nicheLocked ? (
+              <span className="font-dm-mono text-[10px] text-accent-success tracking-wider flex items-center gap-1.5">
+                <Lock size={10} />
+                Locked
+              </span>
+            ) : selectedNiches.length > 0 ? (
+              <span className="font-dm-mono text-[10px] text-accent-primary">
+                {selectedNiches.length} selected
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {NICHES.map((n) => (
+              <button
+                key={n.value}
+                onClick={() => {
+                  toggleNiche(n.value);
+                  // If niche was locked and user changes it, let them re-lock
+                  if (nicheLocked) setNicheLocked(false);
+                }}
+                className={`
+                  font-dm-mono text-xs px-3 py-1.5 border tracking-wider transition-all duration-150
+                  ${selectedNiches.includes(n.value)
+                    ? "border-accent-primary bg-accent-primary text-text-inverse"
+                    : "border-bg-border text-text-secondary hover:border-accent-primary hover:text-accent-primary"
+                  }
+                `}
+              >
+                {n.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Lock In button */}
+          {!nicheLocked ? (
+            <button
+              onClick={handleNicheLockIn}
+              disabled={selectedNiches.length === 0}
+              className={`
+                w-full flex items-center justify-center gap-2 py-2.5
+                font-dm-mono text-xs tracking-widest uppercase transition-all duration-150
+                ${selectedNiches.length > 0
+                  ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse cursor-pointer"
+                  : "bg-bg-elevated text-text-tertiary cursor-not-allowed border border-bg-border"
+                }
+              `}
+            >
+              <Lock size={11} />
+              Lock In Niche
+            </button>
+          ) : (
+            <p className="font-dm-mono text-[10px] text-text-secondary">
+              Zeus is using your niche context. You can still change it above.
+            </p>
+          )}
+        </div>
+
+        {/* ── Zeus Chat ── */}
+        <div className={`mb-8 bg-bg-surface border transition-all duration-300 ${
+          nicheLocked ? "border-bg-border" : "border-bg-border opacity-60"
+        }`}>
           {/* Chat header */}
           <div className="flex items-center gap-3 px-5 py-3 border-b border-bg-border">
-            <div className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
-            <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
-              Zeus · Your AI Director
+            <div className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+              nicheLocked ? "bg-accent-primary animate-pulse" : "bg-text-tertiary"
+            }`} />
+            <span className={`font-dm-mono text-[10px] tracking-widest uppercase transition-colors duration-300 ${
+              nicheLocked ? "text-accent-primary" : "text-text-tertiary"
+            }`}>
+              Zeus · {nicheLocked ? "Your AI Director" : "Offline"}
             </span>
             {briefReady && (
               <span className="ml-auto font-dm-mono text-[10px] text-accent-success tracking-wider">
@@ -352,68 +516,85 @@ export default function CreatePage() {
             )}
           </div>
 
+          {/* Offline state */}
+          {!nicheLocked && (
+            <div className="px-5 py-8 flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-bg-elevated border border-bg-border flex items-center justify-center">
+                <span className="font-dm-mono text-[10px] text-text-tertiary font-bold">Z</span>
+              </div>
+              <p className="font-dm-mono text-xs text-text-tertiary text-center">
+                Select your niche and lock in to bring Zeus online.
+              </p>
+            </div>
+          )}
+
           {/* Messages */}
-          <div className="px-5 py-4 space-y-4 max-h-80 overflow-y-auto">
-            {chatMessages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
-              >
-                {msg.role === "zeus" && (
-                  <div className="w-7 h-7 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center shrink-0 mt-0.5">
-                    <span className="font-dm-mono text-[9px] text-accent-primary font-bold">Z</span>
+          {nicheLocked && (
+            <>
+              <div ref={chatScrollRef} className="px-5 py-4 space-y-4 max-h-80 overflow-y-auto">
+                {chatMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+                  >
+                    {msg.role === "zeus" && (
+                      <div className="w-7 h-7 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center shrink-0 mt-0.5">
+                        <span className="font-dm-mono text-[9px] text-accent-primary font-bold">Z</span>
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[80%] px-4 py-2.5 font-lora text-sm leading-relaxed ${
+                        msg.role === "zeus"
+                          ? "bg-bg-elevated text-text-secondary"
+                          : "bg-accent-primary/10 border border-accent-primary/20 text-text-primary"
+                      }`}
+                    >
+                      {msg.content}
+                      {msg.streaming && (
+                        <span className="inline-block w-1 h-3.5 bg-accent-primary/70 ml-0.5 animate-pulse align-middle" />
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {zeusThinking && chatMessages[chatMessages.length - 1]?.role !== "zeus" && (
+                  <div className="flex gap-3">
+                    <div className="w-7 h-7 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center shrink-0">
+                      <span className="font-dm-mono text-[9px] text-accent-primary font-bold">Z</span>
+                    </div>
+                    <div className="bg-bg-elevated px-4 py-2.5 flex items-center gap-2">
+                      <Loader2 size={12} className="text-accent-primary animate-spin" />
+                      <span className="font-dm-mono text-[10px] text-text-tertiary tracking-wider">Zeus is thinking…</span>
+                    </div>
                   </div>
                 )}
-                <div
-                  className={`max-w-[80%] px-4 py-2.5 font-lora text-sm leading-relaxed ${
-                    msg.role === "zeus"
-                      ? "bg-bg-elevated text-text-secondary"
-                      : "bg-accent-primary/10 border border-accent-primary/20 text-text-primary"
-                  }`}
-                >
-                  {msg.content}
-                </div>
               </div>
-            ))}
 
-            {/* Zeus thinking indicator */}
-            {zeusThinking && (
-              <div className="flex gap-3">
-                <div className="w-7 h-7 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center shrink-0">
-                  <span className="font-dm-mono text-[9px] text-accent-primary font-bold">Z</span>
+              {/* Input */}
+              {!briefReady && (
+                <div className="px-5 pb-5 pt-2 flex gap-3">
+                  <input
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={zeusThinking}
+                    placeholder={topicConfirmed ? "Reply to Zeus…" : "Describe your video idea…"}
+                    className="flex-1 bg-bg-elevated border border-bg-border hover:border-bg-border-hover focus:border-accent-primary focus:outline-none text-text-primary font-lora text-sm px-4 py-2.5 transition-all duration-200 placeholder:text-text-tertiary disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleChatSend}
+                    disabled={!chatInput.trim() || zeusThinking}
+                    className={`px-4 py-2.5 transition-all duration-150 ${
+                      chatInput.trim() && !zeusThinking
+                        ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse"
+                        : "bg-bg-elevated text-text-tertiary cursor-not-allowed border border-bg-border"
+                    }`}
+                  >
+                    <Send size={15} />
+                  </button>
                 </div>
-                <div className="bg-bg-elevated px-4 py-2.5 flex items-center gap-2">
-                  <Loader2 size={12} className="text-accent-primary animate-spin" />
-                  <span className="font-dm-mono text-[10px] text-text-tertiary tracking-wider">Zeus is thinking…</span>
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Input */}
-          {!briefReady && (
-            <div className="px-5 pb-5 pt-2 flex gap-3">
-              <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={zeusThinking}
-                placeholder={topicConfirmed ? "Reply to Zeus…" : "Describe your video idea…"}
-                className="flex-1 bg-bg-elevated border border-bg-border hover:border-bg-border-hover focus:border-accent-primary focus:outline-none text-text-primary font-lora text-sm px-4 py-2.5 transition-all duration-200 placeholder:text-text-tertiary disabled:opacity-50"
-              />
-              <button
-                onClick={handleChatSend}
-                disabled={!chatInput.trim() || zeusThinking}
-                className={`px-4 py-2.5 transition-all duration-150 ${
-                  chatInput.trim() && !zeusThinking
-                    ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse"
-                    : "bg-bg-elevated text-text-tertiary cursor-not-allowed border border-bg-border"
-                }`}
-              >
-                <Send size={15} />
-              </button>
-            </div>
+              )}
+            </>
           )}
         </div>
 
@@ -450,7 +631,6 @@ export default function CreatePage() {
 
             {rexScore && (
               <>
-                {/* Dimension bars */}
                 <div className="space-y-3 mb-4">
                   {Object.entries(rexScore.dimensions).map(([key, dim]) => (
                     <div key={key}>
@@ -475,8 +655,6 @@ export default function CreatePage() {
                     </div>
                   ))}
                 </div>
-
-                {/* Recommendation */}
                 <p className="font-lora text-xs text-text-secondary italic border-t border-bg-border pt-3">
                   {rexScore.recommendation}
                 </p>
@@ -485,90 +663,67 @@ export default function CreatePage() {
           </div>
         )}
 
-        {/* Niche selector */}
-        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
-              Niche
-            </span>
-            {selectedNiches.length > 0 && (
-              <span className="font-dm-mono text-[10px] text-accent-primary">
-                {selectedNiches.length} selected
+        {/* ── Tone (post-brief, Zeus-recommended) ── */}
+        {briefReady && (
+          <div className="mb-8 bg-bg-surface border border-bg-border p-6">
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase">
+                Tone
               </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {NICHES.map((n) => (
-              <button
-                key={n.value}
-                onClick={() => toggleNiche(n.value)}
-                className={`
-                  font-dm-mono text-xs px-3 py-1.5 border tracking-wider transition-all duration-150
-                  ${selectedNiches.includes(n.value)
-                    ? "border-accent-primary bg-accent-primary text-text-inverse"
-                    : "border-bg-border text-text-secondary hover:border-accent-primary hover:text-accent-primary"
-                  }
-                `}
-              >
-                {n.label}
-              </button>
-            ))}
-          </div>
-          <p className="font-dm-mono text-[10px] text-text-tertiary mt-3">
-            Select one or more. Helps Zeus tailor research and positioning.
-          </p>
-        </div>
-
-        {/* Tone selector */}
-        <div className="mb-8 bg-bg-surface border border-bg-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
-              Tone
-            </span>
-            <span className="font-dm-mono text-[10px] text-text-tertiary">
-              {selectedTones.length === 0 ? "Zeus will decide" : `${selectedTones.length} selected`}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            {TONES.map((t) => (
-              <button
-                key={t.value}
-                onClick={() => toggleTone(t.value)}
-                className={`
-                  flex items-center justify-between px-4 py-3 border text-left transition-all duration-150
-                  ${selectedTones.includes(t.value)
-                    ? "border-accent-primary bg-accent-primary/5"
-                    : "border-bg-border hover:border-bg-border-hover"
-                  }
-                `}
-              >
-                <div>
-                  <span className={`font-dm-mono text-xs tracking-wider ${
-                    selectedTones.includes(t.value) ? "text-accent-primary" : "text-text-primary"
-                  }`}>
-                    {t.label}
-                  </span>
-                  <span className="font-lora text-xs text-text-tertiary ml-3">{t.desc}</span>
-                </div>
-                {selectedTones.includes(t.value) && (
-                  <div className="w-4 h-4 rounded-sm border border-accent-primary bg-accent-primary flex items-center justify-center shrink-0">
-                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-                      <path d="M1 3.5L3 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+              <span className="font-dm-mono text-[10px] text-text-tertiary">
+                {selectedTones.length === 0 ? "Zeus will decide" : `${selectedTones.length}/2 selected`}
+              </span>
+            </div>
+            <p className="font-dm-mono text-[10px] text-text-secondary mb-4">
+              Zeus picked this based on your brief. You can change or add a second tone — max 2 to keep the content focused.
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              {TONES.map((t) => (
+                <button
+                  key={t.value}
+                  onClick={() => {
+                    if (selectedTones.includes(t.value)) {
+                      toggleTone(t.value);
+                    } else if (selectedTones.length < 2) {
+                      toggleTone(t.value);
+                    }
+                  }}
+                  disabled={!selectedTones.includes(t.value) && selectedTones.length >= 2}
+                  className={`
+                    flex items-center justify-between px-4 py-3 border text-left transition-all duration-150
+                    ${selectedTones.includes(t.value)
+                      ? "border-accent-primary bg-accent-primary/5"
+                      : selectedTones.length >= 2
+                      ? "border-bg-border opacity-40 cursor-not-allowed"
+                      : "border-bg-border hover:border-bg-border-hover"
+                    }
+                  `}
+                >
+                  <div>
+                    <span className={`font-dm-mono text-xs tracking-wider ${
+                      selectedTones.includes(t.value) ? "text-accent-primary" : "text-text-primary"
+                    }`}>
+                      {t.label}
+                    </span>
+                    <span className="font-lora text-xs text-text-tertiary ml-3">{t.desc}</span>
                   </div>
-                )}
-              </button>
-            ))}
+                  {selectedTones.includes(t.value) && (
+                    <div className="w-4 h-4 rounded-sm border border-accent-primary bg-accent-primary flex items-center justify-center shrink-0">
+                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                        <path d="M1 3.5L3 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="font-dm-mono text-[10px] text-text-tertiary mt-3">
-            Skip to let Zeus choose based on your niche and topic.
-          </p>
-        </div>
+        )}
 
         {/* Duration slider */}
         <div className="mb-8 bg-bg-surface border border-bg-border p-6">
           <div className="flex items-center justify-between mb-4">
-            <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
+            <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase">
               Duration
             </span>
             <span className="font-dm-mono text-sm text-accent-primary">
@@ -593,7 +748,7 @@ export default function CreatePage() {
         <div className="mb-8 bg-bg-surface border border-bg-border p-6">
           <div className="flex items-center justify-between">
             <div>
-              <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase block">
+              <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase block">
                 YouTube Shorts
               </span>
               <span className="font-lora text-sm text-text-secondary mt-1 block">
@@ -647,7 +802,7 @@ export default function CreatePage() {
 
         {/* Voice */}
         <div className="mb-8 bg-bg-surface border border-bg-border p-6">
-          <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase block mb-4">
+          <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase block mb-4">
             Voice
           </span>
           <div className="grid grid-cols-1 gap-2">
@@ -701,7 +856,7 @@ export default function CreatePage() {
 
         {/* Quality threshold */}
         <div className="mb-10 flex items-center justify-between px-1">
-          <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
+          <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase">
             Min quality score
           </span>
           <div className="flex items-center gap-1">
@@ -736,7 +891,7 @@ export default function CreatePage() {
         </button>
 
         {!briefReady && (
-          <p className="font-dm-mono text-[10px] text-text-tertiary text-center mt-3">
+          <p className="font-dm-mono text-[10px] text-text-secondary text-center mt-3">
             Zeus needs to understand your idea before production starts.
           </p>
         )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { Clapperboard, History, Settings, Menu } from "lucide-react";
+import { History, Settings, Menu } from "lucide-react";
 import Link from "next/link";
 import PipelineProgress from "./PipelineProgress";
 import { useUIStore } from "@/lib/ui-store";
@@ -22,14 +22,9 @@ export default function Header() {
 
       {/* Left: Wordmark */}
       <Link href="/" className="flex items-center gap-2 group">
-        <div className="relative">
-          <Clapperboard
-            size={18}
-            className="text-accent-primary transition-transform duration-200 group-hover:scale-110"
-          />
-        </div>
-        <span className="font-syne font-bold text-sm text-text-primary tracking-[0.2em] uppercase">
-          Content Factory
+        <div className="w-1.5 h-1.5 bg-accent-primary group-hover:scale-110 transition-transform duration-200 shrink-0" />
+        <span className="font-syne font-bold text-sm text-text-primary tracking-[0.25em] uppercase">
+          RRQ
         </span>
       </Link>
 

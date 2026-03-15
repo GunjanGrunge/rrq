@@ -288,7 +288,7 @@ function SelfVoicePage() {
           {sections.length > 0 && (
             <div className="mb-6 bg-bg-surface border border-bg-border rounded-md overflow-hidden">
               <div className="px-4 py-2.5 border-b border-bg-border">
-                <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+                <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
                   Script — read this to record
                 </span>
               </div>
@@ -411,10 +411,10 @@ function SelfVoicePage() {
           {timings.length > 0 && audioDuration > 0 && (
             <div className="bg-bg-surface border border-bg-border rounded-md p-4">
               <div className="flex items-center justify-between mb-4">
-                <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+                <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
                   Section timestamps
                 </span>
-                <span className="font-dm-mono text-[10px] text-text-tertiary">
+                <span className="font-dm-mono text-[10px] text-text-secondary">
                   Click any row to jump · edit in/out to correct
                 </span>
               </div>

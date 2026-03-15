@@ -100,25 +100,25 @@ export default function ApprovePublishPage() {
           <div className="w-[45%] overflow-y-auto p-6 space-y-5">
             {/* Title preview */}
             <div>
-              <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-1">Title</span>
+              <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-1">Title</span>
               <p className="font-syne text-sm font-bold text-text-primary leading-snug">{finalTitle}</p>
             </div>
 
             {/* Description preview */}
             <div>
-              <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-1">Description</span>
+              <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-1">Description</span>
               <p className="font-lora text-xs text-text-secondary leading-relaxed line-clamp-4">{finalDescription}</p>
             </div>
 
             {/* Tags count */}
             <div>
-              <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-1">Tags</span>
+              <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-1">Tags</span>
               <p className="font-dm-mono text-xs text-text-primary">{finalTags.length} tags applied</p>
             </div>
 
             {/* Publish mode */}
             <div>
-              <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-2">Publish Mode</span>
+              <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-2">Publish Mode</span>
               <div className="grid grid-cols-2 gap-2">
                 {(["schedule", "now"] as const).map((mode) => (
                   <button
@@ -141,7 +141,7 @@ export default function ApprovePublishPage() {
             {/* Schedule time */}
             {publishMode === "schedule" && (
               <div>
-                <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase block mb-2">Publish At</span>
+                <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-2">Publish At</span>
                 <input
                   type="datetime-local"
                   value={scheduledTime}

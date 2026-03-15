@@ -20,6 +20,7 @@ export interface SEOTitle {
     | "vs-comparison"
     | "warning";
   estimatedCTR: "high" | "medium" | "low";
+  rexScore?: number; // 0–100 — Rex's confidence this title will outperform competitors
 }
 
 export interface ThumbnailConcept {
@@ -90,6 +91,12 @@ export interface ResearchOutput {
   citations: Citation[];
   viralPotential: ViralPotential;
   geoContext: string | null;
+  chosenTitleMeta?: {
+    isRexPick: boolean;
+    rexScore?: number;
+    verdict?: "BETTER" | "ON_PAR" | "WEAKER";
+    userOverrode: boolean;
+  };
 }
 
 // ─── Script Output ──────────────────────────────────────────────────────────

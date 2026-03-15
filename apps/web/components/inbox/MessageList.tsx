@@ -133,7 +133,7 @@ export default function MessageList({
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+                          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
                             {TYPE_LABEL[msg.type]}
                           </span>
                           <span className="font-dm-mono text-[10px] text-text-tertiary">·</span>

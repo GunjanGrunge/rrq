@@ -22,7 +22,7 @@ Return a single JSON object with these exact keys:
 - commonMisconceptions: string array
 - controversialAngle: a take that challenges conventional wisdom
 - reEngagementMoments: mid-video revelations that justify watching past 50%
-- seoTitles: array of { title, formula, estimatedCTR }
+- seoTitles: array of { title, formula, estimatedCTR, rexScore } where rexScore is an integer 0–100 reflecting Rex's confidence this title will outperform competitors — factor in curiosity gap strength, keyword placement in first 4 words, specificity, emotional pull, and formula fit for the topic. The title with the highest rexScore is Rex's genuine recommendation.
 - keywords: { primary: [], secondary: [], longTail: [] } — longTail must include 3+ full question phrases
 - thumbnailConcept: { emotion, textOverlay (max 4 words), visualIdea, colorScheme }
 - competitorGap: what existing top videos are missing
@@ -186,7 +186,7 @@ ${wikiData || "No Wikipedia data available."}
 ### Full Page Content (Cloudflare Crawl)
 ${crawledContent || "No crawled content available."}
 
-Based on all available research data, produce the complete research brief JSON. Prioritise the most recent sources. Every data point must be attributed to a source. Generate at least 5 seoTitles, 8+ keyFacts, and 3+ reEngagementMoments.`;
+Based on all available research data, produce the complete research brief JSON. Prioritise the most recent sources. Every data point must be attributed to a source. Generate at least 5 seoTitles each with a rexScore (0–100), 8+ keyFacts, and 3+ reEngagementMoments. The title with the highest rexScore is Rex's pick.`;
 
       const research = await callBedrockJSON<ResearchOutput>({
         model: "opus",
