@@ -28,16 +28,16 @@ export interface PipelineStep {
 
 export interface BriefData {
   topic: string;
-  duration: number; // minutes
-  tone: Tone;              // primary tone (backward compat)
-  tones: Tone[];           // all selected tones
+  duration: number;
+  tone: Tone;
+  tones: Tone[];
   selectedNiches: string[];
   generateShorts: boolean;
   shortsType: "convert" | "fresh";
   qualityThreshold: number;
   chatMessages: ChatMessage[];
   directorMode: boolean;
-  voiceMode: "ai" | "self"; // "ai" = ElevenLabs, "self" = user records own voice
+  voiceMode: "ai" | "self";
 }
 
 const INITIAL_GATE: ApprovalGateState = {
@@ -54,23 +54,63 @@ const INITIAL_GATES: Record<GateId, ApprovalGateState> = {
   "gate-publish": { ...INITIAL_GATE },
 };
 
-interface PipelineState {
-  // Current job
+const INITIAL_STEP_STATUSES: Record<number, StepStatus> = Object.fromEntries(
+  Array.from({ length: 13 }, (_, i) => [i + 1, "ready" as StepStatus])
+);
+
+// ─── Per-session state ───────────────────────────────────────────────────────
+
+export interface SessionState {
+  jobId: string;
+  createdAt: number;
+  currentStep: number;
+  stepStatuses: Record<number, StepStatus>;
+  brief: BriefData | null;
+  outputs: Record<number, unknown>;
+  approvalGates: Record<GateId, ApprovalGateState>;
+  pendingGate: GateId | null;
+}
+
+function newSession(jobId: string): SessionState {
+  return {
+    jobId,
+    createdAt: Date.now(),
+    currentStep: 0,
+    stepStatuses: { ...INITIAL_STEP_STATUSES },
+    brief: null,
+    outputs: {},
+    approvalGates: {
+      "gate-script": { ...INITIAL_GATE },
+      "gate-seo": { ...INITIAL_GATE },
+      "gate-visuals": { ...INITIAL_GATE },
+      "gate-publish": { ...INITIAL_GATE },
+    },
+    pendingGate: null,
+  };
+}
+
+// ─── Store interface ─────────────────────────────────────────────────────────
+
+interface PipelineStore {
+  // Multi-session
+  sessions: Record<string, SessionState>;
+  activeJobId: string | null;
+
+  // Derived helpers (read from active session)
   jobId: string | null;
   currentStep: number;
   stepStatuses: Record<number, StepStatus>;
-
-  // Brief data
   brief: BriefData | null;
-
-  // Step outputs (typed loosely — will be refined per step)
   outputs: Record<number, unknown>;
-
-  // Director Mode gates
   approvalGates: Record<GateId, ApprovalGateState>;
   pendingGate: GateId | null;
 
-  // Actions
+  // Session management
+  newSession: () => string;               // creates + activates, returns jobId
+  switchSession: (jobId: string) => void;
+  deleteSession: (jobId: string) => void;
+
+  // Pipeline actions (operate on active session)
   startJob: (jobId: string) => void;
   setBrief: (brief: BriefData) => void;
   setStep: (step: number) => void;
@@ -86,123 +126,257 @@ interface PipelineState {
   enableDirectorMode: () => void;
 }
 
-const INITIAL_STEP_STATUSES: Record<number, StepStatus> = Object.fromEntries(
-  Array.from({ length: 13 }, (_, i) => [i + 1, "ready" as StepStatus])
-);
+// ─── Derived field sync helper ───────────────────────────────────────────────
 
-export const usePipelineStore = create<PipelineState>()(
+function syncDerived(sessions: Record<string, SessionState>, activeJobId: string | null) {
+  const active = activeJobId ? sessions[activeJobId] : null;
+  return {
+    jobId: active?.jobId ?? null,
+    currentStep: active?.currentStep ?? 0,
+    stepStatuses: active?.stepStatuses ?? { ...INITIAL_STEP_STATUSES },
+    brief: active?.brief ?? null,
+    outputs: active?.outputs ?? {},
+    approvalGates: active?.approvalGates ?? { ...INITIAL_GATES },
+    pendingGate: active?.pendingGate ?? null,
+  };
+}
+
+// ─── Update a single session field ──────────────────────────────────────────
+
+function patchSession(
+  sessions: Record<string, SessionState>,
+  activeJobId: string | null,
+  patch: Partial<SessionState>
+): Record<string, SessionState> {
+  if (!activeJobId || !sessions[activeJobId]) return sessions;
+  return {
+    ...sessions,
+    [activeJobId]: { ...sessions[activeJobId], ...patch },
+  };
+}
+
+// ─── Store ───────────────────────────────────────────────────────────────────
+
+export const usePipelineStore = create<PipelineStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
+      sessions: {},
+      activeJobId: null,
+
+      // Derived fields (synced from active session)
       jobId: null,
-      currentStep: 1,
+      currentStep: 0,
       stepStatuses: { ...INITIAL_STEP_STATUSES },
       brief: null,
       outputs: {},
       approvalGates: { ...INITIAL_GATES },
       pendingGate: null,
 
-      startJob: (jobId) =>
-        set({
-          jobId,
-          currentStep: 1,
-          stepStatuses: { ...INITIAL_STEP_STATUSES },
-          outputs: {},
-        }),
+      // ── Session management ──────────────────────────────────────────────
 
-      setBrief: (brief) => set({ brief }),
+      newSession: () => {
+        const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const session = newSession(jobId);
+        set((state) => {
+          const sessions = { ...state.sessions, [jobId]: session };
+          return {
+            sessions,
+            activeJobId: jobId,
+            ...syncDerived(sessions, jobId),
+          };
+        });
+        return jobId;
+      },
 
-      setStep: (step) => set({ currentStep: step }),
+      switchSession: (jobId) => {
+        set((state) => {
+          if (!state.sessions[jobId]) return state;
+          return {
+            activeJobId: jobId,
+            ...syncDerived(state.sessions, jobId),
+          };
+        });
+      },
 
-      setStepStatus: (step, status) =>
-        set((state) => ({
-          stepStatuses: { ...state.stepStatuses, [step]: status },
-        })),
+      deleteSession: (jobId) => {
+        set((state) => {
+          const sessions = { ...state.sessions };
+          delete sessions[jobId];
+          const ids = Object.keys(sessions);
+          const nextId = ids.length > 0 ? ids[ids.length - 1] : null;
+          return {
+            sessions,
+            activeJobId: nextId,
+            ...syncDerived(sessions, nextId),
+          };
+        });
+      },
 
-      setStepOutput: (step, output) =>
-        set((state) => ({
-          outputs: { ...state.outputs, [step]: output },
-        })),
+      // ── Pipeline actions ────────────────────────────────────────────────
 
-      resetPipeline: () =>
-        set({
-          jobId: null,
-          currentStep: 1,
-          stepStatuses: { ...INITIAL_STEP_STATUSES },
-          brief: null,
-          outputs: {},
-          approvalGates: {
-            "gate-script": { ...INITIAL_GATE },
-            "gate-seo": { ...INITIAL_GATE },
-            "gate-visuals": { ...INITIAL_GATE },
-            "gate-publish": { ...INITIAL_GATE },
-          },
-          pendingGate: null,
-        }),
+      startJob: (jobId) => {
+        set((state) => {
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            jobId,
+            currentStep: 1,
+            stepStatuses: { ...INITIAL_STEP_STATUSES },
+            outputs: {},
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
 
-      openGate: (gateId) =>
-        set((state) => ({
-          pendingGate: gateId,
-          approvalGates: {
-            ...state.approvalGates,
-            [gateId]: {
-              ...state.approvalGates[gateId],
-              status: "pending",
-              arrivedAt: Date.now(),
+      setBrief: (brief) => {
+        set((state) => {
+          const sessions = patchSession(state.sessions, state.activeJobId, { brief });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
+
+      setStep: (step) => {
+        set((state) => {
+          const sessions = patchSession(state.sessions, state.activeJobId, { currentStep: step });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
+
+      setStepStatus: (step, status) => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            stepStatuses: { ...active.stepStatuses, [step]: status },
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
+
+      setStepOutput: (step, output) => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            outputs: { ...active.outputs, [step]: output },
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
+
+      resetPipeline: () => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            currentStep: 0,
+            stepStatuses: { ...INITIAL_STEP_STATUSES },
+            brief: null,
+            outputs: {},
+            approvalGates: {
+              "gate-script": { ...INITIAL_GATE },
+              "gate-seo": { ...INITIAL_GATE },
+              "gate-visuals": { ...INITIAL_GATE },
+              "gate-publish": { ...INITIAL_GATE },
             },
-          },
-        })),
+            pendingGate: null,
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
 
-      approveGate: (gateId, edits = {}) =>
-        set((state) => ({
-          pendingGate: null,
-          approvalGates: {
-            ...state.approvalGates,
-            [gateId]: {
-              ...state.approvalGates[gateId],
-              status: "approved",
-              approvedAt: Date.now(),
-              edits,
+      // ── Director Mode gate actions ──────────────────────────────────────
+
+      openGate: (gateId) => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            pendingGate: gateId,
+            approvalGates: {
+              ...active.approvalGates,
+              [gateId]: {
+                ...active.approvalGates[gateId],
+                status: "pending",
+                arrivedAt: Date.now(),
+              },
             },
-          },
-        })),
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
 
-      setGateStatus: (gateId, status) =>
-        set((state) => ({
-          approvalGates: {
-            ...state.approvalGates,
-            [gateId]: {
-              ...state.approvalGates[gateId],
-              status,
+      approveGate: (gateId, edits = {}) => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            pendingGate: null,
+            approvalGates: {
+              ...active.approvalGates,
+              [gateId]: {
+                ...active.approvalGates[gateId],
+                status: "approved",
+                approvedAt: Date.now(),
+                edits,
+              },
             },
-          },
-        })),
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
 
-      resetGates: () =>
-        set({
-          approvalGates: {
-            "gate-script": { ...INITIAL_GATE },
-            "gate-seo": { ...INITIAL_GATE },
-            "gate-visuals": { ...INITIAL_GATE },
-            "gate-publish": { ...INITIAL_GATE },
-          },
-          pendingGate: null,
-        }),
+      setGateStatus: (gateId, status) => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            approvalGates: {
+              ...active.approvalGates,
+              [gateId]: { ...active.approvalGates[gateId], status },
+            },
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
 
-      enableDirectorMode: () =>
-        set((state) => ({
-          brief: state.brief ? { ...state.brief, directorMode: true } : null,
-        })),
+      resetGates: () => {
+        set((state) => {
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            approvalGates: {
+              "gate-script": { ...INITIAL_GATE },
+              "gate-seo": { ...INITIAL_GATE },
+              "gate-visuals": { ...INITIAL_GATE },
+              "gate-publish": { ...INITIAL_GATE },
+            },
+            pendingGate: null,
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
+
+      enableDirectorMode: () => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active?.brief) return state;
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            brief: { ...active.brief, directorMode: true },
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
     }),
     {
-      name: "rrq-pipeline",
+      name: "rrq-pipeline-v2",
       partialize: (state) => ({
-        jobId: state.jobId,
-        currentStep: state.currentStep,
-        stepStatuses: state.stepStatuses,
-        brief: state.brief,
-        approvalGates: state.approvalGates,
-        pendingGate: state.pendingGate,
+        sessions: state.sessions,
+        activeJobId: state.activeJobId,
       }),
+      // Re-derive flat fields on rehydration
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          const derived = syncDerived(state.sessions, state.activeJobId);
+          Object.assign(state, derived);
+        }
+      },
     }
   )
 );

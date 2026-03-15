@@ -93,9 +93,15 @@ export default function ScriptPage() {
 
   function updateSectionScript(index: number, newText: string) {
     if (!script) return;
-    const updated = { ...script };
-    updated.sections = [...updated.sections];
+    const updated = { ...script, sections: [...script.sections] };
     updated.sections[index] = { ...updated.sections[index], script: newText };
+    setScript(updated);
+    setStepOutput(2, updated);
+  }
+
+  function updateTitle(newTitle: string) {
+    if (!script) return;
+    const updated = { ...script, title: newTitle };
     setScript(updated);
     setStepOutput(2, updated);
   }
@@ -114,13 +120,22 @@ export default function ScriptPage() {
     <div className="flex-1 overflow-hidden flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-bg-border">
-        <div>
+        <div className="flex-1 min-w-0 mr-4">
           <h1 className="font-syne text-xl font-bold text-text-primary">
             Script
           </h1>
-          <p className="font-dm-mono text-xs text-text-secondary mt-1">
-            {script?.title ?? brief?.topic}
-          </p>
+          {script && editMode ? (
+            <input
+              value={script.title}
+              onChange={(e) => updateTitle(e.target.value)}
+              className="mt-1 w-full bg-bg-elevated border border-accent-primary text-text-primary font-dm-mono text-xs px-2 py-1 focus:outline-none"
+              placeholder="Video title…"
+            />
+          ) : (
+            <p className="font-dm-mono text-xs text-text-secondary mt-1 truncate">
+              {script?.title ?? brief?.topic}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {script && (

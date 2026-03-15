@@ -863,6 +863,116 @@ more than variety in the middle.
 
 ---
 
+## VisualBrief Generation — Dynamic Visual Direction for TONY
+
+MUSE generates a `VisualBrief` for every beat that will be executed by TONY.
+This is not a static template — it is written fresh per beat by Opus, informed
+by Oracle's current visual meta, the channel tone, the tension curve, and
+the beat's position in the retention arc.
+
+### What MUSE Knows at Brief Time
+
+```
+Channel tone        → analytical / entertainment / critical / etc.
+Tension curve       → ESCALATING_REVEAL / RAPID_DOPAMINE / COUNTDOWN_BUILD / etc.
+Beat position       → hook / body / climax / outro
+Beat type           → SECTION_CARD / STAT_CALLOUT / GRAPHIC_OVERLAY / etc.
+Script content      → what is being said at this moment
+Oracle visual meta  → what styles are ESTABLISHED / EMERGING right now
+```
+
+### Oracle Query at Blueprint Time
+
+Before generating VisualBriefs, MUSE queries Oracle's VISUAL_META_LIBRARY:
+
+```typescript
+const visualMeta = await queryOracleKnowledge(
+  `Return VisualMetaEntry records matching:
+   tone: ${channelTone.primary}
+   beatPositions: ${beatsNeedingTony.map(b => b.position)}
+   status: ESTABLISHED or EMERGING (not DECLINING or DEPRECATED)`,
+  "VISUAL_META_LIBRARY"
+);
+```
+
+### VisualBrief Schema
+
+```typescript
+interface VisualBrief {
+  // Creative direction — Opus writes this per beat
+  mood: string;              // e.g. "urgent, high-energy, dark cinematic"
+  animationStyle: string;    // e.g. "number counts up fast with spring easing, lands with amber glow pulse at 24fps"
+  typography: string;        // e.g. "Syne bold 72px white headline, DM Mono 14px amber label above"
+  colorTreatment: string;    // e.g. "bg #0a0a0a, accent #f5a623, glow rgba(245,166,35,0.35) on landing"
+  durationSeconds: number;   // exact render duration
+  entryAnimation: string;    // e.g. "slides in from left, 12-frame ease-out"
+  exitAnimation: string;     // e.g. "fades to black over 8 frames"
+  beatPosition: "hook" | "body" | "climax" | "outro";
+
+  // Context from Oracle visual meta
+  inspiredBy: string[];      // e.g. ["Kurzgesagt infographic language", "MKBHD precision typography"]
+  currentMeta: string;       // one-line description of the current visual style being applied
+  metaSource: string;        // which VisualMetaEntry this brief draws from
+
+  // Constraints for TONY
+  mustAvoid: string[];       // e.g. ["no gradients", "no rounded corners on data cards"]
+  accessibilityNote: string; // e.g. "ensure 4.5:1 contrast on all text"
+}
+```
+
+### Tone → Visual Direction Mapping
+
+MUSE maps channel tone + beat position to visual direction before querying Oracle:
+
+```typescript
+const TONE_VISUAL_DEFAULTS: Record<string, Record<string, Partial<VisualBrief>>> = {
+  analytical: {
+    hook:    { mood: "precise, authoritative, data-forward", colorTreatment: "monochrome with amber data accent" },
+    body:    { mood: "clinical, structured, credible", animationStyle: "clean slide-in, no decorative motion" },
+    climax:  { mood: "decisive, high-contrast, verdict-weight", animationStyle: "bold stat lands hard, no bounce" },
+  },
+  entertainment: {
+    hook:    { mood: "electric, kinetic, immediate", animationStyle: "fast enter with spring overshoot, energy burst" },
+    body:    { mood: "engaging, dynamic, story-driven", animationStyle: "smooth transitions, visual momentum maintained" },
+    climax:  { mood: "peak energy, maximum impact", animationStyle: "rapid sequence, tight cuts, maximum visual density" },
+  },
+  critical: {
+    hook:    { mood: "provocative, confident, thesis-first", colorTreatment: "high contrast, sharp edges, no softness" },
+    body:    { mood: "forensic, deliberate, evidence-weighted", animationStyle: "methodical reveal, each element earns its place" },
+    climax:  { mood: "verdict weight, unambiguous", animationStyle: "single element dominates, no clutter" },
+  },
+  explanatory: {
+    hook:    { mood: "curious, approachable, clarity-first", animationStyle: "gentle unfold, concept builds piece by piece" },
+    body:    { mood: "clear, layered, educational", animationStyle: "sequential reveal, each layer adds to the last" },
+    climax:  { mood: "satisfying resolution, full picture revealed", animationStyle: "all elements come together, complete composition" },
+  },
+};
+```
+
+### How MUSE Writes a VisualBrief
+
+Opus generates the VisualBrief in natural language — precise enough that Haiku
+can translate it directly to Remotion code without interpretation.
+
+MUSE does NOT write code. MUSE writes intent.
+TONY does NOT interpret intent. TONY executes instruction.
+
+The brief must be specific enough that two different Haiku runs would produce
+similar output. Vague briefs produce inconsistent output.
+
+**Good brief (specific):**
+> "Stat callout: large number '847M' in Syne bold 96px white, counts up from 0
+> over 45 frames with spring easing (stiffness 80, damping 12). Amber label
+> 'MONTHLY ACTIVE USERS' in DM Mono 13px sits 16px above. On landing frame:
+> amber glow pulse radiates from number, rgba(245,166,35,0.4) expanding ring,
+> 300ms duration. Background #0a0a0a. Enters from bottom over 18 frames.
+> Total duration: 3.5 seconds at 30fps."
+
+**Bad brief (vague):**
+> "Make a nice stat card with the number and some animation."
+
+---
+
 ## Updated Checklist
 
 ```
@@ -895,4 +1005,10 @@ more than variety in the middle.
 [ ] Test tone injection: analytical → verify data beat density increases
 [ ] Test tone injection: entertainment → verify tension/release device count increases
 [ ] Test tone default (hybrid) → verify neutral pacing applied
+[ ] Create lib/muse/visual-brief-generator.ts   — Opus generates VisualBrief per beat
+[ ] Wire Oracle VISUAL_META_LIBRARY query into blueprint generation (before tonyTasks built)
+[ ] Add VisualBrief to tonyTasks schema in shared types
+[ ] Test: analytical + hook → brief matches monochrome/amber data-forward spec
+[ ] Test: entertainment + climax → brief matches kinetic/high-energy spec
+[ ] Verify Oracle visual meta is populated before first MUSE blueprint run
 ```

@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
 import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
+import { webSearch, formatSearchResults } from "@/lib/web-search";
 import type { ResearchOutput, ScriptOutput } from "@/lib/types/pipeline";
 
 // ─── Script system prompt ───────────────────────────────────────────────────
@@ -77,19 +78,30 @@ export async function POST(req: Request) {
 
   (async () => {
     try {
-      // Stage 0 — review the research
+      // Stage 0 — review the research + live search for freshness
       emit({ type: "status_line", message: "MUSE is studying Rex's brief…" });
       const targetWords = Math.round(duration * 140);
-      // Small async yield so the client receives the first status line before the heavy work
-      await new Promise(r => setTimeout(r, 50));
+      const freshResults = await webSearch(
+        `${researchOutput.topic} ${new Date().getFullYear()} update latest`,
+        5
+      );
+      const freshContext = formatSearchResults(freshResults, "Live freshness check");
       emit({ type: "stage_complete", stageIndex: 0 });
 
       // Stage 1 — build the prompt (structure design)
       emit({ type: "status_line", message: "MUSE is mapping the story arc…" });
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentDate = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
       const userPrompt = `Write a complete YouTube script based on this research brief.
+
+TODAY: ${currentDate} — use ${currentYear} in all titles, statistics, and comparisons. Never reference ${currentYear - 1} or earlier as "current" or "latest".
 
 TARGET DURATION: ${duration} minutes (~${targetWords} words)
 TONE: ${tone}
+
+${freshContext ? `## Live Web Context (fetched right now)\n${freshContext}\n\nUse this to verify recency of facts and add any breaking updates not in the research brief.` : ""}
 ${generateShorts && shortsType === "fresh" ? "ALSO GENERATE: A fresh YouTube Shorts script (45-60 seconds, ~100 words)" : ""}
 
 ## Research Brief

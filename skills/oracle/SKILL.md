@@ -343,6 +343,62 @@ export const ORACLE_DOMAINS = [
 
   // ── Domain 10 (added Phase 4) ─────────────────────────────────────────────
   {
+    id: "VISUAL_META_LIBRARY",
+    name: "Visual Meta & Design Trend Intelligence",
+    description: "Tracks what visual styles, animation patterns, typography treatments, " +
+                 "and overlay designs are currently performing on YouTube and in the broader " +
+                 "motion design space. Feeds MUSE's VisualBrief generation. " +
+                 "Oracle evaluates RexDesignSignals from the field and adopts worthy sources.",
+    primaryAgent: "MUSE",
+    secondaryAgents: ["TONY", "REX"],
+    researchDepth: "STANDARD",
+    sources: [
+      // Design education + trend sources
+      "awwwards.com — web design trend reports and Site of the Day analysis",
+      "mobbin.com — UI pattern library and motion design references",
+      "fonts.google.com/knowledge — typography principles and current usage",
+      "Behance motion design collections — animation patterns and visual language",
+      "Nielsen Norman Group — visual hierarchy and UX research",
+      // Channel inspiration (structural patterns — not copying)
+      "MrBeast video analysis — kinetic energy, bold stat callouts, countdown tension",
+      "Kurzgesagt — geometric animation, clean infographic visual language",
+      "MKBHD — minimal dark aesthetic, precision typography, lower third design",
+      "Veritasium — data-first overlays, thesis-driven graphic cards",
+      "ColdFusion — cinematic dark lower thirds, moody b-roll text treatment",
+    ],
+    queries: [
+      "YouTube video overlay design trends {currentMonth} {currentYear}",
+      "motion graphics styles trending YouTube {currentYear}",
+      "lower third design best practices video {currentYear}",
+      "kinetic typography video trends {currentYear}",
+      "infographic animation styles YouTube top channels {currentYear}",
+      "video graphic overlay design {currentMonth} {currentYear}",
+      "Remotion animation library new releases {currentYear}",
+      "web animation design trends {currentMonth} {currentYear}",
+    ],
+
+    // Rex feeds this domain from the field
+    rexSignalIntake: {
+      signalType: "RexDesignSignal",
+      table: "oracle-knowledge-index",
+      evaluationCriteria: [
+        "Is this a genuinely new resource not already in the watched sources list?",
+        "Does it cover motion design, video overlays, animation, or typography?",
+        "Is it actively maintained and updated (not abandoned)?",
+        "Does it represent an emerging pattern vs a one-off?",
+      ],
+      onAdoption: "Add URL to watched sources list in RAG. Start pulling on next Oracle run. Notify Zeus.",
+      onRejection: "Log reason. Do not add. Rex is not penalised for false positives — field signals are noisy.",
+    },
+
+    outputSchema: {
+      // One VisualMetaEntry per identified style/pattern
+      entries: "VisualMetaEntry[]",
+    },
+  },
+
+  // ── Domain 11 (added Phase 4) ─────────────────────────────────────────────
+  {
     id: "PRESENTER_PERFORMANCE_ANALYTICS",
     name: "Presenter Performance Analytics",
     description: "Oracle tracks per-presenter performance metrics and triggers " +
@@ -407,7 +463,7 @@ type OraclePresenterRecommendation =
     },
   },
 
-  // ── Domain 11 (added Phase 4+) ────────────────────────────────────────────
+  // ── Domain 12 (added Phase 4+) ────────────────────────────────────────────
   {
     id: "AI_DETECTION_RESISTANCE_AUDIT",
     name: "AI Detection Resistance Audit",
@@ -485,6 +541,47 @@ type OraclePresenterRecommendation =
 ] as const;
 
 export type DomainId = typeof ORACLE_DOMAINS[number]["id"];
+```
+
+---
+
+## Visual Meta Types
+
+Types used by Domain 10 (`VISUAL_META_LIBRARY`) and the MUSE VisualBrief system.
+
+```typescript
+// Visual meta entry — one per identified style or pattern
+interface VisualMetaEntry {
+  id: string;                    // e.g. "kinetic-stat-callout-2026"
+  category: "OVERLAY" | "LOWER_THIRD" | "STAT_CALLOUT" | "SECTION_CARD"
+           | "TYPOGRAPHY" | "COLOR_TREATMENT" | "ANIMATION_PATTERN" | "TRANSITION";
+  name: string;                  // e.g. "Kinetic Number Callout"
+  description: string;           // what it is and when it works
+  status: "EMERGING" | "ESTABLISHED" | "DECLINING" | "DEPRECATED";
+  inspiredBy: string[];          // e.g. ["MrBeast", "Kurzgesagt"] — inspiration not copy
+  colorLanguage: string;         // e.g. "dark bg, amber accent, white headline"
+  typographyNotes: string;       // e.g. "Syne bold 72px, DM Mono 14px label"
+  animationNotes: string;        // e.g. "number counts up with spring easing, lands with glow pulse"
+  entryAnimation: string;        // e.g. "slides in from left, 12-frame ease-out"
+  exitAnimation: string;         // e.g. "fades to black over 8 frames"
+  beatPositionFit: Array<"hook" | "body" | "climax" | "outro">;
+  toneFit: Array<"analytical" | "explanatory" | "critical" | "entertainment" | "hybrid">;
+  performanceSignal: string;     // why Oracle thinks this is working right now
+  discoveredAt: string;          // ISO date
+  lastUpdated: string;
+  source: "ORACLE_SCHEDULED" | "REX_SIGNAL";
+}
+
+// Rex sends this when he spots a new design resource in the field
+interface RexDesignSignal {
+  type: "DESIGN_TOOL" | "DESIGN_RESOURCE" | "VISUAL_TREND";
+  name: string;                  // e.g. "Motion One", "Framer Sites 2026 trend report"
+  url: string;
+  why: string;                   // Rex's one-line reason it's worth watching
+  confidence: number;            // 0-100 — how sure Rex is this is legit
+  source: string;                // where Rex spotted it (GitHub trending, X, Reddit, etc.)
+  discoveredAt: string;          // ISO timestamp
+}
 ```
 
 ---

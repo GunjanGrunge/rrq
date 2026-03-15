@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
-import { ArrowRight, ChevronDown, Send } from "lucide-react";
+import { ArrowRight, ChevronDown, Send, Loader2 } from "lucide-react";
 
 const TONES = [
   { value: "informative", label: "Informative", desc: "Clear, factual, educational" },
@@ -37,41 +37,26 @@ interface ChatMessage {
   content: string;
 }
 
-const ZEUS_OPENING = "Tell me about your video — what topic or idea do you have in mind?";
-
-// Zeus follow-up logic based on what's missing
-function getZeusFollowUp(
-  topic: string,
-  selectedTones: Tone[],
-  selectedNiches: NicheValue[],
-  messageCount: number
-): string | null {
-  if (messageCount === 1 && selectedNiches.length === 0) {
-    return `Got it — "${topic.slice(0, 60)}${topic.length > 60 ? "…" : ""}". What field or audience is this for? Pick a niche above so I can tailor the research and framing.`;
-  }
-  if (messageCount === 1 && selectedTones.length === 0) {
-    return `Nice topic. How do you want it to feel? Informative and factual, entertaining and story-driven, or something else? You can pick a tone above — or skip and I'll choose based on your niche.`;
-  }
-  if (messageCount >= 2 && selectedTones.length === 0 && selectedNiches.length > 0) {
-    const nicheLabel = selectedNiches[0];
-    const suggestedTone =
-      nicheLabel.includes("Finance") || nicheLabel.includes("Science")
-        ? "informative"
-        : nicheLabel.includes("Entertainment") || nicheLabel.includes("Gaming")
-        ? "entertaining"
-        : nicheLabel.includes("Politics") || nicheLabel.includes("News")
-        ? "controversial"
-        : "informative";
-    return `For ${nicheLabel}, I'd suggest an "${suggestedTone}" tone — it tends to perform well with that audience. Feel free to change it above, or I'll go with that.`;
-  }
-  return null;
+interface RexScore {
+  overall: number;
+  verdict: "STRONG" | "SOLID" | "RISKY";
+  dimensions: Record<string, { score: number; note: string }>;
+  recommendation: string;
 }
+
+const DIMENSION_LABELS: Record<string, string> = {
+  trendStrength: "Trend Strength",
+  competitionLevel: "Opportunity Gap",
+  audienceDemand: "Audience Demand",
+  nicheRelevance: "Niche Relevance",
+  contentUniqueness: "Uniqueness",
+};
+
+const ZEUS_OPENING = "Tell me about your video — what topic or idea do you have in mind?";
 
 export default function CreatePage() {
   const router = useRouter();
-  const { setBrief, startJob, setStep } = usePipelineStore();
-
-  useEffect(() => { setStep(0); }, [setStep]);
+  const { setBrief, brief: activeBrief, activeJobId, newSession: createNewSession, setStep } = usePipelineStore();
 
   const [topic, setTopic] = useState("");
   const [duration, setDuration] = useState(10);
@@ -83,6 +68,7 @@ export default function CreatePage() {
   const [directorMode, setDirectorMode] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"ai" | "self">("ai");
   const [isStarting, setIsStarting] = useState(false);
+  const [isMidPipeline, setIsMidPipeline] = useState(false);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -90,11 +76,59 @@ export default function CreatePage() {
   ]);
   const [chatInput, setChatInput] = useState("");
   const [topicConfirmed, setTopicConfirmed] = useState(false);
+  const [zeusThinking, setZeusThinking] = useState(false);
+  const [briefReady, setBriefReady] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Rex score state
+  const [rexScore, setRexScore] = useState<RexScore | null>(null);
+  const [rexLoading, setRexLoading] = useState(false);
+
+  useEffect(() => {
+    // Only create a session on first-ever visit (no sessions at all in store)
+    // Refresh or navigating back must NOT create a new session
+    const { sessions } = usePipelineStore.getState();
+    if (Object.keys(sessions).length === 0) {
+      createNewSession();
+    }
+    setStep(0);
+
+    // Restore chat state when navigating back to this page
+    const state = usePipelineStore.getState();
+    const restoredBrief = state.brief;
+    if (restoredBrief?.chatMessages && restoredBrief.chatMessages.length > 0) {
+      setChatMessages(restoredBrief.chatMessages);
+      setTopic(restoredBrief.topic ?? "");
+      setTopicConfirmed(true);
+      setBriefReady(true);
+      setSelectedTones((restoredBrief.tones ?? []) as Tone[]);
+      setSelectedNiches((restoredBrief.selectedNiches ?? []) as NicheValue[]);
+      setDuration(restoredBrief.duration ?? 10);
+      setGenerateShorts(restoredBrief.generateShorts ?? false);
+      setShortsType(restoredBrief.shortsType ?? "convert");
+      setDirectorMode(restoredBrief.directorMode ?? false);
+      setVoiceMode(restoredBrief.voiceMode ?? "ai");
+
+      // If pipeline already started, Zeus warns that going again resets everything
+      const activeSession = state.sessions[state.activeJobId ?? ""];
+      if (activeSession && activeSession.currentStep > 0) {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: "zeus",
+            content:
+              "Welcome back. If you change anything and start again, the pipeline will reset — research, script, SEO, and quality gate will all need to run again from scratch. Let me know if you want to adjust anything or just go straight back to your pipeline.",
+          },
+        ]);
+        setIsMidPipeline(true);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+  }, [chatMessages, zeusThinking]);
 
   const estimatedWords = Math.round(duration * 150);
 
@@ -110,32 +144,80 @@ export default function CreatePage() {
     );
   }
 
-  function handleChatSend() {
+  async function handleChatSend() {
     const msg = chatInput.trim();
-    if (!msg) return;
+    if (!msg || zeusThinking) return;
 
-    const userMessages: ChatMessage[] = [...chatMessages, { role: "user", content: msg }];
-    setChatMessages(userMessages);
-    setChatInput("");
-
-    // First user message sets the topic
+    // First message sets topic
     if (!topicConfirmed) {
       setTopic(msg);
       setTopicConfirmed(true);
     }
 
-    const userMessageCount = userMessages.filter((m) => m.role === "user").length;
-    const followUp = getZeusFollowUp(
-      topicConfirmed ? topic : msg,
-      selectedTones,
-      selectedNiches,
-      userMessageCount
-    );
+    const updatedMessages: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", content: msg },
+    ];
+    setChatMessages(updatedMessages);
+    setChatInput("");
+    setZeusThinking(true);
 
-    if (followUp) {
-      setTimeout(() => {
-        setChatMessages((prev) => [...prev, { role: "zeus", content: followUp }]);
-      }, 600);
+    try {
+      const res = await fetch("/api/brief/zeus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: updatedMessages,
+          topic: topicConfirmed ? topic : msg,
+          niche: selectedNiches,
+          tone: selectedTones,
+        }),
+      });
+      const data = await res.json() as { content: string; briefReady: boolean };
+
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "zeus", content: data.content },
+      ]);
+
+      if (data.briefReady) {
+        setBriefReady(true);
+        runRexScore(topicConfirmed ? topic : msg, updatedMessages);
+      }
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "zeus", content: "Something went wrong. Try again." },
+      ]);
+    } finally {
+      setZeusThinking(false);
+    }
+  }
+
+  async function runRexScore(resolvedTopic: string, messages: ChatMessage[]) {
+    setRexLoading(true);
+    const chatSummary = messages
+      .filter((m) => m.role === "user")
+      .map((m) => m.content)
+      .join(" | ");
+
+    try {
+      const res = await fetch("/api/brief/rex", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: resolvedTopic,
+          niche: selectedNiches,
+          tone: selectedTones,
+          chatSummary,
+        }),
+      });
+      const score = await res.json() as RexScore;
+      setRexScore(score);
+    } catch {
+      // non-blocking — user can still proceed without Rex score
+    } finally {
+      setRexLoading(false);
     }
   }
 
@@ -150,8 +232,13 @@ export default function CreatePage() {
     if (!topic.trim()) return;
     setIsStarting(true);
 
-    const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const primaryTone = selectedTones[0] ?? "informative";
+
+    // Only create a new session if the active one already has a brief (i.e. it's mid-pipeline)
+    // If we arrived here via sidebar "New" button, a fresh empty session already exists
+    if (activeBrief !== null) {
+      createNewSession();
+    }
 
     setBrief({
       topic,
@@ -166,13 +253,24 @@ export default function CreatePage() {
       directorMode,
       voiceMode,
     });
-    startJob(jobId);
-    setStep(2);
+    setStep(1);
 
     router.push(`/create/research`);
   }
 
-  const canStart = topic.trim().length > 0;
+  const verdictColor = rexScore?.verdict === "STRONG"
+    ? "text-accent-success"
+    : rexScore?.verdict === "SOLID"
+    ? "text-accent-primary"
+    : "text-accent-error";
+
+  const verdictBorder = rexScore?.verdict === "STRONG"
+    ? "border-accent-success/30 bg-accent-success/5"
+    : rexScore?.verdict === "SOLID"
+    ? "border-accent-primary/30 bg-accent-primary/5"
+    : "border-accent-error/30 bg-accent-error/5";
+
+  const canStart = briefReady && topic.trim().length > 0;
 
   return (
     <div className="min-h-full flex flex-col items-center justify-center px-8 py-16">
@@ -247,10 +345,15 @@ export default function CreatePage() {
             <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
               Zeus · Your AI Director
             </span>
+            {briefReady && (
+              <span className="ml-auto font-dm-mono text-[10px] text-accent-success tracking-wider">
+                ◆ Brief locked
+              </span>
+            )}
           </div>
 
           {/* Messages */}
-          <div className="px-5 py-4 space-y-4 max-h-64 overflow-y-auto">
+          <div className="px-5 py-4 space-y-4 max-h-80 overflow-y-auto">
             {chatMessages.map((msg, i) => (
               <div
                 key={i}
@@ -272,31 +375,115 @@ export default function CreatePage() {
                 </div>
               </div>
             ))}
+
+            {/* Zeus thinking indicator */}
+            {zeusThinking && (
+              <div className="flex gap-3">
+                <div className="w-7 h-7 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center shrink-0">
+                  <span className="font-dm-mono text-[9px] text-accent-primary font-bold">Z</span>
+                </div>
+                <div className="bg-bg-elevated px-4 py-2.5 flex items-center gap-2">
+                  <Loader2 size={12} className="text-accent-primary animate-spin" />
+                  <span className="font-dm-mono text-[10px] text-text-tertiary tracking-wider">Zeus is thinking…</span>
+                </div>
+              </div>
+            )}
             <div ref={chatEndRef} />
           </div>
 
           {/* Input */}
-          <div className="px-5 pb-5 pt-2 flex gap-3">
-            <input
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={topicConfirmed ? "Reply to Zeus..." : "Describe your video idea..."}
-              className="flex-1 bg-bg-elevated border border-bg-border hover:border-bg-border-hover focus:border-accent-primary focus:outline-none text-text-primary font-lora text-sm px-4 py-2.5 transition-all duration-200 placeholder:text-text-tertiary"
-            />
-            <button
-              onClick={handleChatSend}
-              disabled={!chatInput.trim()}
-              className={`px-4 py-2.5 transition-all duration-150 ${
-                chatInput.trim()
-                  ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse"
-                  : "bg-bg-elevated text-text-tertiary cursor-not-allowed border border-bg-border"
-              }`}
-            >
-              <Send size={15} />
-            </button>
-          </div>
+          {!briefReady && (
+            <div className="px-5 pb-5 pt-2 flex gap-3">
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={zeusThinking}
+                placeholder={topicConfirmed ? "Reply to Zeus…" : "Describe your video idea…"}
+                className="flex-1 bg-bg-elevated border border-bg-border hover:border-bg-border-hover focus:border-accent-primary focus:outline-none text-text-primary font-lora text-sm px-4 py-2.5 transition-all duration-200 placeholder:text-text-tertiary disabled:opacity-50"
+              />
+              <button
+                onClick={handleChatSend}
+                disabled={!chatInput.trim() || zeusThinking}
+                className={`px-4 py-2.5 transition-all duration-150 ${
+                  chatInput.trim() && !zeusThinking
+                    ? "bg-accent-primary hover:bg-accent-primary-hover text-text-inverse"
+                    : "bg-bg-elevated text-text-tertiary cursor-not-allowed border border-bg-border"
+                }`}
+              >
+                <Send size={15} />
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* Rex Score Card — appears after brief is locked */}
+        {briefReady && (
+          <div className={`mb-8 border p-6 ${rexLoading ? "border-bg-border bg-bg-surface" : verdictBorder}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
+                <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
+                  Rex · Opportunity Score
+                </span>
+              </div>
+              {rexScore && (
+                <div className="flex items-center gap-3">
+                  <span className={`font-syne font-bold text-2xl ${verdictColor}`}>
+                    {rexScore.overall}
+                  </span>
+                  <span className={`font-dm-mono text-xs tracking-widest ${verdictColor}`}>
+                    {rexScore.verdict}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {rexLoading && (
+              <div className="flex items-center gap-3 py-4">
+                <Loader2 size={14} className="text-accent-primary animate-spin" />
+                <span className="font-dm-mono text-xs text-text-tertiary tracking-wider">
+                  Rex is scanning the opportunity…
+                </span>
+              </div>
+            )}
+
+            {rexScore && (
+              <>
+                {/* Dimension bars */}
+                <div className="space-y-3 mb-4">
+                  {Object.entries(rexScore.dimensions).map(([key, dim]) => (
+                    <div key={key}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-dm-mono text-[10px] text-text-tertiary tracking-wider">
+                          {DIMENSION_LABELS[key] ?? key}
+                        </span>
+                        <span className="font-dm-mono text-[10px] text-text-secondary">
+                          {dim.note}
+                        </span>
+                      </div>
+                      <div className="h-1 bg-bg-elevated rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ${
+                            dim.score >= 70 ? "bg-accent-success" :
+                            dim.score >= 45 ? "bg-accent-primary" :
+                            "bg-accent-error"
+                          }`}
+                          style={{ width: `${dim.score}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Recommendation */}
+                <p className="font-lora text-xs text-text-secondary italic border-t border-bg-border pt-3">
+                  {rexScore.recommendation}
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Niche selector */}
         <div className="mb-8 bg-bg-surface border border-bg-border p-6">
@@ -332,7 +519,7 @@ export default function CreatePage() {
           </p>
         </div>
 
-        {/* Tone selector — multi-select */}
+        {/* Tone selector */}
         <div className="mb-8 bg-bg-surface border border-bg-border p-6">
           <div className="flex items-center justify-between mb-4">
             <span className="font-dm-mono text-xs text-text-tertiary tracking-widest uppercase">
@@ -539,14 +726,20 @@ export default function CreatePage() {
             }
           `}
         >
-          {isStarting ? "Starting..." : "Start Pipeline"}
-          {!isStarting && (
+          {isStarting ? "Starting…" : briefReady ? (isMidPipeline ? "Reset & Start Over" : "Start Pipeline") : "Talk to Zeus first"}
+          {!isStarting && canStart && (
             <ArrowRight
               size={18}
               className="group-hover:translate-x-1 transition-transform duration-200"
             />
           )}
         </button>
+
+        {!briefReady && (
+          <p className="font-dm-mono text-[10px] text-text-tertiary text-center mt-3">
+            Zeus needs to understand your idea before production starts.
+          </p>
+        )}
       </div>
     </div>
   );

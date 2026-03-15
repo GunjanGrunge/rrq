@@ -156,6 +156,64 @@ const NICHE_SOURCES = {
 
 ---
 
+## Design Signal Scanning — Secondary Stream
+
+Rex runs a lightweight design signal scan alongside his primary content scan.
+Every 30-minute cycle, Rex checks a small set of sources for new design tools,
+animation libraries, or visual trend resources that Oracle should know about.
+
+This is Rex in the field — not Oracle's scheduled research. Rex catches things
+the moment they emerge. Oracle evaluates and adopts.
+
+### Sources Rex Monitors for Design Signals
+
+```
+GitHub Trending     — new JavaScript/TypeScript repos tagged: animation, motion, remotion, video
+Hacker News         — "Show HN" posts mentioning design tools, animation libraries
+X / Twitter         — design community accounts posting new tool releases
+Reddit              — r/motiondesign, r/webdev, r/design — new tool announcements
+Product Hunt        — new launches tagged: design, animation, video, motion
+```
+
+### RexDesignSignal Output
+
+When Rex spots something worth Oracle's attention:
+
+```typescript
+interface RexDesignSignal {
+  type: "DESIGN_TOOL" | "DESIGN_RESOURCE" | "VISUAL_TREND";
+  name: string;         // e.g. "Motion One v2.0 — Web Animations API wrapper"
+  url: string;
+  why: string;          // Rex's one-line case: "Remotion-compatible, replaces spring() for complex paths"
+  confidence: number;   // 0-100
+  source: string;       // "GitHub Trending", "HN Show HN", etc.
+  discoveredAt: string; // ISO timestamp
+}
+```
+
+Rex writes qualifying signals to `oracle-knowledge-index` DynamoDB table
+with `domain: "VISUAL_META_LIBRARY"` and `status: "REX_SIGNAL_PENDING"`.
+
+Oracle reads pending signals on its next scheduled run, evaluates each one,
+and either adopts (adds to watched sources) or rejects (logs reason, removes pending flag).
+
+### Confidence Threshold
+
+Rex only writes a `RexDesignSignal` if confidence >= 60.
+Below 60 — Rex notes it internally but does not surface it.
+False positives are logged but Rex is not penalised — field signals are noisy by nature.
+
+### What Rex Does NOT Flag
+
+```
+- Minor version bumps to existing packages (Oracle tracks these via PACKAGE_DISCOVERY)
+- Marketing content about existing tools
+- Tools with no clear connection to video overlays, motion graphics, or animation
+- Anything behind a paywall with no free tier
+```
+
+---
+
 ## Confidence Scoring System
 
 Every flagged topic gets a confidence score (0.0–1.0) before it touches Regum.

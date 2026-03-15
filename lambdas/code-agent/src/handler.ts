@@ -12,8 +12,9 @@ const bedrock = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us
 const s3 = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
 const BUCKET = process.env.S3_BUCKET_NAME ?? "content-factory-assets";
 
-// Haiku model — fast code generation
-const HAIKU_MODEL = "anthropic.claude-haiku-4-5-20251001";
+// TONY model routing — Sonnet primary, Haiku fallback
+const SONNET_MODEL = "arn:aws:bedrock:us-east-1:751289209169:inference-profile/us.anthropic.claude-sonnet-4-6";
+const HAIKU_MODEL = "arn:aws:bedrock:us-east-1:751289209169:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 const TONY_SYSTEM_PROMPT = `You are TONY — the Code Agent for the RRQ autonomous YouTube system.
 You generate executable JavaScript code on demand for other agents.
@@ -99,24 +100,51 @@ Available context variables: ${contextKeys.length > 0 ? contextKeys.join(", ") :
 
 Generate JavaScript code to accomplish this task. Remember: no imports, use process.send() to return results.`;
 
+  const now = new Date();
+  const dateContext = `Today's date: ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} (${now.getFullYear()}). Always use the current year in any titles, labels, or comparisons — never use a past year.`;
+  const systemWithDate = `${dateContext}\n\n${TONY_SYSTEM_PROMPT}`;
+
+  const body = JSON.stringify({
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: 2048,
+    system: systemWithDate,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  // Try Sonnet first, fall back to Haiku
+  let modelId = SONNET_MODEL;
+  try {
+    const response = await bedrock.send(
+      new InvokeModelCommand({
+        modelId: SONNET_MODEL,
+        contentType: "application/json",
+        accept: "application/json",
+        body,
+      })
+    );
+    const parsed = JSON.parse(new TextDecoder().decode(response.body));
+    const raw: string = parsed.content?.[0]?.text ?? "";
+    console.log(`[tony][${input.jobId}] Code gen: Sonnet 4.6`);
+    return raw
+      .replace(/^```(?:javascript|js|typescript|ts)?\n?/i, "")
+      .replace(/\n?```$/i, "")
+      .trim();
+  } catch (err) {
+    console.warn(`[tony][${input.jobId}] Sonnet failed, falling back to Haiku:`, err instanceof Error ? err.message : err);
+    modelId = HAIKU_MODEL;
+  }
+
   const response = await bedrock.send(
     new InvokeModelCommand({
-      modelId: HAIKU_MODEL,
+      modelId,
       contentType: "application/json",
       accept: "application/json",
-      body: JSON.stringify({
-        anthropic_version: "bedrock-2023-05-31",
-        max_tokens: 2048,
-        system: TONY_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
+      body,
     })
   );
-
   const parsed = JSON.parse(new TextDecoder().decode(response.body));
   const raw: string = parsed.content?.[0]?.text ?? "";
-
-  // Strip markdown code fences if Haiku wrapped the code
+  console.log(`[tony][${input.jobId}] Code gen: Haiku 4.5 (fallback)`);
   return raw
     .replace(/^```(?:javascript|js|typescript|ts)?\n?/i, "")
     .replace(/\n?```$/i, "")

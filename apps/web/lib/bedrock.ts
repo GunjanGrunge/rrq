@@ -6,9 +6,9 @@ import {
 // ─── Model IDs ──────────────────────────────────────────────────────────────
 
 export const MODELS = {
-  opus: "anthropic.claude-opus-4-5",
-  sonnet: "anthropic.claude-sonnet-4-5",
-  haiku: "anthropic.claude-haiku-4-5-20251001",
+  opus: "arn:aws:bedrock:us-east-1:751289209169:inference-profile/us.anthropic.claude-opus-4-6-v1",
+  sonnet: "arn:aws:bedrock:us-east-1:751289209169:inference-profile/us.anthropic.claude-sonnet-4-6",
+  haiku: "arn:aws:bedrock:us-east-1:751289209169:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0",
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
@@ -47,9 +47,12 @@ export async function callBedrock({
 }: BedrockCallOptions): Promise<string> {
   const bedrock = getClient();
 
+  const now = new Date();
+  const dateContext = `Today's date: ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} (${now.getFullYear()}). Always use the current year in titles, dates, and comparisons — never use a past year.`;
+
   const systemBlock: Record<string, unknown> = {
     type: "text",
-    text: systemPrompt,
+    text: `${dateContext}\n\n${systemPrompt}`,
   };
 
   // Enable prompt caching on system prompt for repeated context

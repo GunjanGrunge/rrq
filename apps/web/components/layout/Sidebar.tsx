@@ -3,12 +3,12 @@
 import { useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useUIStore } from "@/lib/ui-store";
-import { Zap, ChevronRight, X, Inbox } from "lucide-react";
+import { Zap, ChevronRight, X, Inbox, Plus, Trash2 } from "lucide-react";
 import StatusPill from "@/components/ui/StatusPill";
-import type { GateId, GateStatus } from "@/lib/pipeline-store";
+import type { GateId, GateStatus, SessionState } from "@/lib/pipeline-store";
 
 const PIPELINE_STEPS = [
   { number: 0, label: "Creative Brief", slug: "" },
@@ -79,10 +79,43 @@ function injectGates(
   return result;
 }
 
+function sessionLabel(session: SessionState): string {
+  return session.brief?.topic
+    ? session.brief.topic.length > 24
+      ? session.brief.topic.slice(0, 24) + "…"
+      : session.brief.topic
+    : "New clip";
+}
+
+function sessionStepLabel(session: SessionState): string {
+  const step = session.currentStep;
+  if (step === 0) return "Brief";
+  const found = PIPELINE_STEPS.find((s) => s.number === step);
+  return found ? found.label : `Step ${step}`;
+}
+
+function sessionIsRunning(session: SessionState): boolean {
+  return Object.values(session.stepStatuses).some((s) => s === "running");
+}
+
 export default function Sidebar() {
   const { user, isLoaded } = useUser();
   const pathname = usePathname();
-  const { currentStep, stepStatuses, brief, approvalGates, pendingGate } = usePipelineStore();
+  const router = useRouter();
+
+  const {
+    sessions,
+    activeJobId,
+    currentStep,
+    stepStatuses,
+    brief,
+    approvalGates,
+    pendingGate,
+    newSession,
+    switchSession,
+    deleteSession,
+  } = usePipelineStore();
+
   const { sidebarOpen, closeSidebar } = useUIStore();
 
   const plan = (user?.publicMetadata?.plan as string) ?? "free";
@@ -91,10 +124,32 @@ export default function Sidebar() {
 
   const entries = injectGates(PIPELINE_STEPS, approvalGates, directorMode);
 
+  // Sorted sessions — most recent first
+  const sessionList = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt);
+
   // Close sidebar on route change (mobile)
   useEffect(() => {
     closeSidebar();
   }, [pathname, closeSidebar]);
+
+  function handleNewClip() {
+    newSession();
+    router.push("/create");
+  }
+
+  function handleSwitchSession(jobId: string) {
+    switchSession(jobId);
+    router.push("/create");
+  }
+
+  function handleDeleteSession(e: React.MouseEvent, jobId: string) {
+    e.stopPropagation();
+    deleteSession(jobId);
+    // If we deleted the active session, go to /create (newSession or blank)
+    if (jobId === activeJobId) {
+      router.push("/create");
+    }
+  }
 
   function GateDiamond({ status }: { status: GateStatus }) {
     if (status === "approved") {
@@ -112,6 +167,7 @@ export default function Sidebar() {
       {anyRunning && (
         <div className="h-0.5 w-full bg-accent-primary animate-pulse shrink-0" />
       )}
+
       {/* Plan badge */}
       <div className="px-4 py-3 border-b border-bg-border flex items-center justify-between">
         {isLoaded ? (
@@ -171,7 +227,77 @@ export default function Sidebar() {
         </Link>
       </div>
 
-      {/* Pipeline steps */}
+      {/* Sessions */}
+      <div className="border-b border-bg-border">
+        <div className="px-4 py-2 flex items-center justify-between">
+          <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">
+            Clips
+          </span>
+          <button
+            onClick={handleNewClip}
+            className="flex items-center gap-1 text-text-tertiary hover:text-accent-primary transition-colors"
+            title="New clip"
+          >
+            <Plus size={12} />
+            <span className="font-dm-mono text-[10px] tracking-wider">New</span>
+          </button>
+        </div>
+
+        {sessionList.length === 0 ? (
+          <div className="px-4 pb-3">
+            <span className="font-dm-mono text-[10px] text-text-tertiary">No clips yet</span>
+          </div>
+        ) : (
+          <div className="pb-1">
+            {sessionList.map((session) => {
+              const isActive = session.jobId === activeJobId;
+              const running = sessionIsRunning(session);
+
+              return (
+                <div
+                  key={session.jobId}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleSwitchSession(session.jobId)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSwitchSession(session.jobId)}
+                  className={`
+                    w-full flex items-center justify-between px-4 py-2.5 text-left transition-all duration-200 group cursor-pointer
+                    ${isActive
+                      ? "bg-bg-elevated border-l-2 border-l-accent-primary"
+                      : "hover:bg-bg-elevated border-l-2 border-l-transparent"
+                    }
+                  `}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {running && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse shrink-0" />
+                      )}
+                      <span className={`font-dm-mono text-[11px] truncate ${
+                        isActive ? "text-text-primary" : "text-text-secondary"
+                      }`}>
+                        {sessionLabel(session)}
+                      </span>
+                    </div>
+                    <span className="font-dm-mono text-[9px] text-text-tertiary tracking-wider mt-0.5 block">
+                      {running ? "Running…" : sessionStepLabel(session)}
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, session.jobId)}
+                    className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-accent-error transition-all duration-150 ml-1 shrink-0"
+                    title="Remove"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Pipeline steps (for active session) */}
       <div className="flex-1 py-2">
         <div className="px-4 py-2">
           <span className="font-dm-mono text-[10px] text-text-tertiary tracking-widest uppercase">

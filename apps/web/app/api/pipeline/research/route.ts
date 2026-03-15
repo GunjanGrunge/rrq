@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
 import { fetchPagesInParallel, pickBestUrls } from "@/lib/crawler";
 import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
+import { webSearch, formatSearchResults } from "@/lib/web-search";
 import type { ResearchOutput } from "@/lib/types/pipeline";
 
 // ─── Research system prompt ─────────────────────────────────────────────────
@@ -124,13 +125,17 @@ export async function POST(req: Request) {
 
   (async () => {
     try {
-      // Stage 0 — fetch external sources
+      // Stage 0 — fetch external sources + live web search
       emit({ type: "status_line", message: "Rex is scouting the landscape…" });
-      const [redditData, newsData, wikiData] = await Promise.all([
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const [redditData, newsData, wikiData, searchResults] = await Promise.all([
         fetchReddit(topic),
         fetchNewsAPI(topic),
         fetchWikipedia(topic),
+        webSearch(`${topic} ${currentYear} latest news updates`, 8),
       ]);
+      const webSearchData = formatSearchResults(searchResults, `Live Web Search — ${topic} (${currentYear})`);
       emit({ type: "stage_complete", stageIndex: 0 });
 
       // Stage 1 — crawl content
@@ -154,7 +159,11 @@ export async function POST(req: Request) {
 
       // Stage 2 — Bedrock synthesis
       emit({ type: "status_line", message: "Rex is putting it all together…" });
-      const userPrompt = `Research this topic thoroughly for a YouTube video:
+      const currentDate = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+      const userPrompt = `Research this topic thoroughly for a YouTube video.
+
+TODAY: ${currentDate} (${currentYear}). Use only current information. Treat anything from before ${currentYear} as background context — not "latest".
 
 TOPIC: ${topic}
 TARGET DURATION: ${duration} minutes
@@ -162,6 +171,8 @@ TONE: ${tone}
 ${videoType ? `VIDEO TYPE: ${videoType}` : "Determine the best video type."}
 
 ## Available Research Data
+
+${webSearchData || ""}
 
 ### Reddit Community Discussion
 ${redditData || "No Reddit data available."}
@@ -175,7 +186,7 @@ ${wikiData || "No Wikipedia data available."}
 ### Full Page Content (Cloudflare Crawl)
 ${crawledContent || "No crawled content available."}
 
-Based on all available research data, produce the complete research brief JSON. Every data point must be attributed to a source. Generate at least 5 seoTitles, 8+ keyFacts, and 3+ reEngagementMoments.`;
+Based on all available research data, produce the complete research brief JSON. Prioritise the most recent sources. Every data point must be attributed to a source. Generate at least 5 seoTitles, 8+ keyFacts, and 3+ reEngagementMoments.`;
 
       const research = await callBedrockJSON<ResearchOutput>({
         model: "opus",

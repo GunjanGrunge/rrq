@@ -177,14 +177,15 @@ AWS LAMBDA WORKERS
                       Renders Remotion MP4s, web scraping, data reports, custom visuals
                       Called by: MUSE (primary), REX, REGUM, ORACLE, QEON, ZEUS
 
-AWS EC2 — THREE GPU Instances (all spot, all self-terminate)
-  avatar-gen          g5.12xlarge spot — SkyReels V2-I2V-14B-720P (4× A10G, 96GB VRAM)
+AWS EC2 — TWO GPU Instances (all spot, all self-terminate)
+  video-gen           g5.12xlarge spot — single instance, model-swap pattern
                       Launches per job, self-terminates when done
-                      Handles: TALKING_HEAD, SPLIT_SCREEN beats
-
-  broll-gen           g5.2xlarge spot — Wan2.2-T2V-A14B FP8 (1× A10G, 24GB VRAM)
-                      Launches per job, self-terminates when done
-                      Handles: B_ROLL, atmospheric video beats
+                      Step 1: loads + runs SkyReels V2-I2V-14B-720P (~12 min)
+                      Step 2: unloads, loads Wan2.2-T2V-A14B FP8 (~10 min)
+                      Total: ~22 min sequential (parallel was ~12 min — accepted tradeoff)
+                      Cost: ~$0.59/video vs ~$0.39 parallel (g5.12xlarge overprovisioned for Wan2.2 but accepted)
+                      Handles: TALKING_HEAD, SPLIT_SCREEN, B_ROLL, atmospheric video beats
+                      Decision: user accepted +15 min wait to save one spot instance per video
 
   avatar-portrait-gen g4dn.xlarge spot — FLUX.1 [dev] FP8 (1× T4, 16GB VRAM)
                       Fires on channel onboarding + roster expansion only
@@ -420,9 +421,9 @@ Rex Mode: user selects topic from Rex queue, then same pipeline as Studio Mode.
 
 visualType per beat (Muse's MuseBlueprint):
 ```
-TALKING_HEAD      → SkyReels V2 (EC2 g5.12xlarge)
-SPLIT_SCREEN      → SkyReels V2 (EC2 g5.12xlarge)
-B_ROLL            → Wan2.2 (EC2 g5.2xlarge)
+TALKING_HEAD      → SkyReels V2 (EC2 g5.12xlarge — single instance, model-swap)
+SPLIT_SCREEN      → SkyReels V2 (EC2 g5.12xlarge — single instance, model-swap)
+B_ROLL            → Wan2.2 (EC2 g5.12xlarge — same instance after SkyReels unloads)
 SECTION_CARD      → TONY Lambda (Remotion/Recharts/D3)
 CONCEPT_IMAGE     → TONY Lambda (Remotion/Recharts/D3)
 THUMBNAIL_SRC     → TONY Lambda (Remotion/Recharts/D3)
@@ -894,8 +895,7 @@ ZEUS_ANALYTICS_RULE=rate(24 hours)
 
 ### Per-Video Cost
 ```
-SkyReels V2 (g5.12xlarge spot ~$1.60/hr × 12min)    ~$0.32
-Wan2.2      (g5.2xlarge spot  ~$0.40/hr × 10min)    ~$0.07
+video-gen   (g5.12xlarge spot ~$1.60/hr × 22min)    ~$0.59  (SkyReels + Wan2.2 sequential, single instance)
 TONY Lambda (Haiku code-gen + sandbox execution)    ~$0.01
 Lambda workers (audio, visuals, av-sync, upload)    ~$0.04
 S3 + data transfer                                  ~$0.01
@@ -903,7 +903,7 @@ ElevenLabs × 4 accounts                             ~$0.00  (free tier)
 AWS Bedrock (per video LLM calls)                   ~$0.08
 FLUX portrait (g4dn.xlarge spot ~$0.53/hr × 4min, once per presenter)  ~$0.04 amortized
 ────────────────────────────────────────────────────
-Per video                                            ~$0.52
+Per video                                            ~$0.77
 ```
 
 ### Monthly Fixed Costs (platform, regardless of video count)
@@ -996,7 +996,7 @@ Phase 13 — Auth + Billing + Polish
 | Bedrock over direct Anthropic API | IAM auth, prompt caching, all in one AWS account |
 | Inngest over Step Functions | 50k free runs vs 4k, TypeScript-first, Vercel-native |
 | Bedrock Knowledge Base over Pinecone | Fully managed RAG, no external account, all AWS |
-| EC2 spot for SkyReels + Wan2.2 | Cheapest GPU option, self-terminates, full control |
+| Single EC2 spot (model-swap) over two parallel instances | User accepted +15 min wait (~22 min total) to eliminate one spot instance per video. SkyReels runs first, unloads, Wan2.2 loads on same g5.12xlarge. Saves one instance launch per video. |
 | TONY over FLUX for stills | Remotion/Recharts/D3 generates data-driven, on-brand artifacts. No EC2 cost, no AI image generation, Oracle keeps toolbox current automatically |
 | SkyReels V2 over SadTalker or D-ID | 33 expressions, cinematic quality, zero per-video API cost |
 | Wan2.2 over stock b-roll APIs | VBench 84.7%, generated not licensed, no attribution required |

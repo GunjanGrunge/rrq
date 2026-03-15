@@ -68,6 +68,8 @@ Fast structured code generation. Never Sonnet or Opus for TONY.
   context:     Record<string, unknown>,  // data TONY can use (injected as frozen constants)
   outputType:  "data" | "chart" | "report" | "scrape",
   allowedDomains?: string[],     // override default allowlist (use sparingly)
+  visualBrief?: VisualBrief,     // MUSE-generated per beat — drives all Haiku creative decisions
+                                  // Optional: required for MUSE tasks, optional for Rex/Regum/Oracle tasks
   timeoutMs:   number,           // default 30_000
 }
 
@@ -145,6 +147,83 @@ react-icons            — SSR issues, use phosphor-react
 
 ---
 
+## VisualBrief — The Creative Driver
+
+TONY does not have a static visual style. MUSE (Opus) generates a `VisualBrief`
+per beat and attaches it to every tonyTask. Haiku's code generation prompt
+is built directly from the VisualBrief — not from defaults or templates.
+
+```
+MUSE designs → VisualBrief attached to tonyTask
+TONY receives → Haiku code-gen prompt built from VisualBrief
+Haiku generates → Remotion component that executes the brief exactly
+TONY runs → output matches MUSE's intent
+```
+
+### Haiku Prompt Construction
+
+The handler builds the Haiku code-gen prompt by serialising the VisualBrief
+into precise natural language instructions:
+
+```typescript
+function buildCodeGenPrompt(input: CodeAgentInput): string {
+  const brief = input.visualBrief;
+
+  return `
+You are generating a Remotion React component. Execute these instructions exactly.
+
+## Visual Brief (from MUSE)
+Mood: ${brief.mood}
+Animation: ${brief.animationStyle}
+Typography: ${brief.typography}
+Color: ${brief.colorTreatment}
+Duration: ${brief.durationSeconds} seconds at 30fps (${Math.round(brief.durationSeconds * 30)} total frames)
+Entry: ${brief.entryAnimation}
+Exit: ${brief.exitAnimation}
+Inspired by: ${brief.inspiredBy.join(", ")}
+Current meta applied: ${brief.currentMeta}
+
+## Must Avoid
+${brief.mustAvoid.map(a => `- ${a}`).join("\n")}
+
+## Accessibility
+${brief.accessibilityNote}
+
+## Task
+${input.task}
+
+## Available Data
+${JSON.stringify(input.context, null, 2)}
+
+## Available Packages
+remotion, @remotion/shapes, @remotion/motion-blur, @remotion/noise,
+@remotion/google-fonts, @remotion/lottie, recharts, d3, @nivo/core,
+@nivo/bar, @nivo/line, @nivo/radar, lucide-react, phosphor-react,
+d3-geo, @vnedyalk0v/react19-simple-maps
+
+## Rules
+- Use useCurrentFrame() and interpolate() for all animations
+- Use spring() from remotion for physics-based motion
+- Export default a React component — no imports, context is pre-injected
+- Call process.send({ success: true, output: "rendered" }) when done
+- Never use browser APIs (window, document, localStorage)
+- Honour every spec in the Visual Brief — do not substitute or simplify
+`.trim();
+}
+```
+
+### No Fallback Defaults
+
+TONY does not have hardcoded visual defaults. If `visualBrief` is missing
+from a tonyTask, the handler throws and retries — it does not fall back to
+a generic style. Every TONY output must be directed by MUSE.
+
+Exception: when TONY is called by agents other than MUSE (Rex for scrapers,
+Regum for analytics charts), `visualBrief` is optional. If absent,
+Haiku uses minimal dark styling: bg #0a0a0a, white text, amber accent.
+
+---
+
 ## Sandbox Architecture
 
 ```
@@ -196,9 +275,10 @@ When MUSE generates MuseBlueprint, it can set `tonyTasks` on scriptOutput:
 ```typescript
 // scriptOutput.tonyTasks (added to script schema in Phase 9)
 tonyTasks?: Array<{
-  task:       string,
-  context:    Record<string, unknown>,
-  outputType: "data" | "chart" | "report" | "scrape",
+  task:        string,
+  context:     Record<string, unknown>,
+  outputType:  "data" | "chart" | "report" | "scrape",
+  visualBrief: VisualBrief,   // Opus-generated per beat — TONY executes this, not static defaults
 }>
 ```
 

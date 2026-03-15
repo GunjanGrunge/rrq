@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { callBedrockJSON } from "@/lib/bedrock";
 import { createSSEStream, SSE_HEADERS } from "@/lib/pipeline-sse";
+import { webSearch, formatSearchResults } from "@/lib/web-search";
 import type {
   ResearchOutput,
   ScriptOutput,
@@ -103,14 +104,29 @@ export async function POST(req: Request) {
 
   (async () => {
     try {
-      // Stage 0 — read the content
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentDate = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+      // Stage 0 — read the content + live search to verify recency
       emit({ type: "status_line", message: "Vera is reading everything…" });
-      await new Promise(r => setTimeout(r, 50));
+      const verifyResults = await webSearch(
+        `${researchOutput.topic} ${currentYear} facts latest`,
+        5
+      );
+      const verifyContext = formatSearchResults(verifyResults, "Live fact-check context");
       emit({ type: "stage_complete", stageIndex: 0 });
 
       // Stage 1 — build scoring prompt
       emit({ type: "status_line", message: "Vera is scoring each dimension…" });
+
       const userPrompt = `Score this YouTube video content across all 7 quality dimensions.
+
+## Current Date
+Today is ${currentDate}. The current year is ${currentYear}.
+CHECK: Does the title or script reference a past year (e.g. ${currentYear - 1} instead of ${currentYear})? If so, penalise titleCTR and flag it in feedback.
+
+${verifyContext ? `## Live Web Context (fetched right now)\n${verifyContext}\n\nUse this to cross-check whether facts in the script are still accurate and current as of today.` : ""}
 
 ## Quality Threshold
 User's minimum acceptable score: ${threshold}/10
