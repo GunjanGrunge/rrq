@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { ArrowRight } from "lucide-react";
+import { SiVercel, SiGithub, SiElevenlabs } from "react-icons/si";
 
 // ─── Full team roster ──────────────────────────────────────────────────────────
 const TEAM = [
@@ -259,7 +260,7 @@ export default function LandingPage() {
         </nav>
 
         {/* ─── Hero ────────────────────────────────────────────────────────── */}
-        <section className="relative z-10 flex flex-col items-center justify-center min-h-[92vh] px-8 text-center">
+        <section className="relative z-10 flex flex-col items-center justify-center min-h-[92vh] px-8 pb-24 text-center">
           {/* Ambient glow behind headline */}
           <div
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full pointer-events-none"
@@ -563,6 +564,79 @@ export default function LandingPage() {
               </div>
               <div className="shrink-0 font-lora text-text-tertiary text-xs max-w-[220px] leading-relaxed hidden md:block">
                 The whole team signs off before anything reaches your audience.
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* ─── Powered by ───────────────────────────────────────────────────── */}
+        <Reveal>
+          <div className="relative z-10 border-t border-bg-border px-8 py-16">
+            <div className="max-w-6xl mx-auto flex flex-col items-center gap-10">
+              <span className="font-dm-mono text-[10px] text-text-tertiary tracking-[0.4em] uppercase">
+                Powered by
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-12 md:gap-20">
+
+                {/* AWS */}
+                <div className="flex flex-col items-center gap-3 opacity-40 hover:opacity-70 transition-opacity duration-300">
+                  <svg width="60" height="32" viewBox="0 0 60 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <text x="0" y="26" fontFamily="Arial Black, sans-serif" fontWeight="900" fontSize="28" fill="#FF9900" letterSpacing="-1">aws</text>
+                  </svg>
+                  <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase">AWS</span>
+                </div>
+
+                {/* Anthropic */}
+                <div className="flex flex-col items-center gap-3 opacity-40 hover:opacity-70 transition-opacity duration-300">
+                  <svg width="40" height="36" viewBox="0 0 50 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    {/* A — two angled strokes meeting at top, crossbar */}
+                    <path d="M6 38L20 4L34 38" stroke="#f0ece4" strokeWidth="5" strokeLinecap="square" strokeLinejoin="miter" fill="none"/>
+                    <line x1="11" y1="26" x2="29" y2="26" stroke="#f0ece4" strokeWidth="5" strokeLinecap="square"/>
+                    {/* \ — backslash */}
+                    <line x1="37" y1="6" x2="48" y2="38" stroke="#f0ece4" strokeWidth="5" strokeLinecap="square"/>
+                  </svg>
+                  <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase">Anthropic</span>
+                </div>
+
+                {/* ElevenLabs */}
+                <div className="flex flex-col items-center gap-3 opacity-40 hover:opacity-70 transition-opacity duration-300">
+                  <SiElevenlabs size={36} color="#f0ece4" />
+                  <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase">ElevenLabs</span>
+                </div>
+
+                {/* Vercel */}
+                <div className="flex flex-col items-center gap-3 opacity-40 hover:opacity-70 transition-opacity duration-300">
+                  <SiVercel size={32} color="#f0ece4" />
+                  <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase">Vercel</span>
+                </div>
+
+                {/* Claude */}
+                <div className="flex flex-col items-center gap-3 opacity-40 hover:opacity-70 transition-opacity duration-300">
+                  <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    {/* Starburst — 8 spokes radiating from centre */}
+                    {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+                      <line
+                        key={angle}
+                        x1="18"
+                        y1="18"
+                        x2={18 + 14 * Math.cos((angle * Math.PI) / 180)}
+                        y2={18 + 14 * Math.sin((angle * Math.PI) / 180)}
+                        stroke="#CC785C"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                    ))}
+                    <circle cx="18" cy="18" r="2.5" fill="#CC785C"/>
+                  </svg>
+                  <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase">Claude</span>
+                </div>
+
+                {/* GitHub */}
+                <div className="flex flex-col items-center gap-3 opacity-40 hover:opacity-70 transition-opacity duration-300">
+                  <SiGithub size={34} color="#f0ece4" />
+                  <span className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase">GitHub</span>
+                </div>
+
               </div>
             </div>
           </div>

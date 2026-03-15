@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Syne, DM_Mono, Lora } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+
 import "./globals.css";
 
 const syne = Syne({
