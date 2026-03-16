@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
@@ -20,6 +20,14 @@ export default function SettingsPage() {
   const [lastName, setLastName] = useState("");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   function startEdit() {
     setFirstName(user?.firstName ?? "");
@@ -36,24 +44,31 @@ export default function SettingsPage() {
   }
 
   async function handleSave() {
-    if (!user) return;
+    if (!user || isSaving) return;
+    setIsSaving(true);
     try {
       await user.update({ firstName, lastName });
       setEditing(false);
       setSaveStatus("saved");
       setSaveError("");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      saveTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err: unknown) {
       // Clerk throws ClerkAPIResponseError — access .message directly
       const message = (err as { message?: string }).message ?? "Failed to save";
       setSaveError(message);
       setSaveStatus("error");
+    } finally {
+      setIsSaving(false);
     }
   }
 
   async function handleSignOut() {
-    await signOut();
-    router.push("/sign-in");
+    try {
+      await signOut();
+      router.push("/sign-in");
+    } catch (err) {
+      console.error("Sign out failed:", err);
+    }
   }
 
   const currentPlan =
@@ -130,9 +145,10 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleSave}
-                    className="bg-accent-primary text-bg-base font-dm-mono text-[11px] font-bold px-4 py-1.5 rounded-lg hover:bg-accent-primary/90 transition-colors"
+                    disabled={isSaving}
+                    className="bg-accent-primary text-bg-base font-dm-mono text-[11px] font-bold px-4 py-1.5 rounded-lg hover:bg-accent-primary/90 transition-colors disabled:opacity-50"
                   >
-                    Save
+                    {isSaving ? "Saving..." : "Save"}
                   </button>
                   <button
                     onClick={cancelEdit}
