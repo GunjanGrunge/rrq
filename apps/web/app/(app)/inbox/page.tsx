@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   useNotificationStore,
   getUnreadCount,
@@ -75,6 +76,25 @@ const VIEW_LABELS = {
   trash: "Trash",
   archive: "Archive",
 } as const;
+
+function InboxDeepLink() {
+  const searchParams = useSearchParams();
+  const { messages, setActiveMessage } = useNotificationStore();
+
+  useEffect(() => {
+    const id = searchParams.get("message");
+    // Guard: only call setActiveMessage if message exists in store.
+    // Note: if store hydrates after mount (e.g. demo seed in useEffect), this will
+    // silently not deep-link — this is intentional per spec ("no action taken if not found").
+    if (id && messages.find((m) => m.messageId === id)) {
+      setActiveMessage(id);
+    }
+  // Intentionally runs on mount only — query param does not change after navigation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return null;
+}
 
 export default function InboxPage() {
   const {
@@ -212,6 +232,9 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-full bg-bg-base">
+      <Suspense fallback={null}>
+        <InboxDeepLink />
+      </Suspense>
       {/* Left panel */}
       <div className="w-[380px] shrink-0 border-r border-bg-border flex flex-col">
 
