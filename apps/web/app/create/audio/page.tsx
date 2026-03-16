@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 import type { ScriptOutput, ScriptSection } from "@/lib/types/pipeline";
 import { Mic, Upload, CheckCircle, Play, Pause, SkipForward } from "lucide-react";
@@ -513,8 +515,24 @@ function SelfVoicePage() {
 // ── Default export ────────────────────────────────────────────────────────────
 
 export default function AudioPage() {
-  const { setStep, brief } = usePipelineStore();
+  const { setStep, brief, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   useEffect(() => { setStep(5); }, [setStep]);
+
+  if (stepStatuses[5] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={5}
+          stepLabel="Audio"
+          errorMessage="Voiceover generation failed. ElevenLabs or Edge-TTS may be temporarily unavailable."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[5].length}
+          onRerunStep={() => { rerunStep(5); router.push("/create/audio"); }}
+        />
+      </div>
+    );
+  }
 
   if (brief?.voiceMode === "self") {
     return <SelfVoicePage />;

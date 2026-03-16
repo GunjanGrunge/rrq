@@ -36,6 +36,12 @@ export {
   UploaderOutput,
   type UploaderInputType,
   type UploaderOutputType,
+
+  // Code Agent (TONY)
+  CodeAgentInput,
+  CodeAgentOutput,
+  type CodeAgentInputType,
+  type CodeAgentOutputType,
 } from "./schemas";
 
 export {

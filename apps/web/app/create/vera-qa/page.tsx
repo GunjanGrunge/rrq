@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 
 export default function VeraQAPage() {
-  const { setStep, stepStatuses } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   const { proceedAfterVeraQA } = useDirectorNavigation();
 
   useEffect(() => { setStep(11); }, [setStep]);
@@ -17,6 +20,21 @@ export default function VeraQAPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepStatuses[11]]);
+
+  if (stepStatuses[11] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={11}
+          stepLabel="Vera QA"
+          errorMessage="Vera QA generation failed."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[11].length}
+          onRerunStep={() => { rerunStep(11); router.push("/create/vera-qa"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting

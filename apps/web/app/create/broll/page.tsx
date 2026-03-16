@@ -1,12 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 
 export default function BRollPage() {
-  const { setStep } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   useEffect(() => { setStep(7); }, [setStep]);
+
+  if (stepStatuses[7] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={7}
+          stepLabel="B-Roll"
+          errorMessage="B-Roll generation failed. This may be a temporary EC2 issue."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[7].length}
+          onRerunStep={() => { rerunStep(7); router.push("/create/broll"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting

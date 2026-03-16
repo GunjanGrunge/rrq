@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type { ResearchOutput, SEOTitle, KeyFact } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
 import MetadataChip from "@/components/ui/MetadataChip";
 import StepProgressCard from "@/components/pipeline/StepProgressCard";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 
 const RESEARCH_STAGES = [
   "Web search + Reddit + News fetched",
@@ -74,8 +76,9 @@ function getBestTitleIndex(titles: SEOTitle[]): number {
 }
 
 export default function ResearchPage() {
-  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses } =
+  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses, rerunStep } =
     usePipelineStore();
+  const router = useRouter();
   const storedResearch = outputs[1] as ResearchOutput | undefined;
   const [research, setResearch] = useState<ResearchOutput | null>(
     storedResearch ?? null
@@ -143,7 +146,7 @@ export default function ResearchPage() {
     // Wait for Zustand hydration before deciding whether to run.
     // If step 1 is already complete (persisted), skip — data is in outputs[1].
     if (!hydrated) return;
-    if (brief && !research && !isRunning && stepStatuses[1] !== "complete") {
+    if (brief && !research && !isRunning && !["complete", "running"].includes(stepStatuses[1])) {
       runResearch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -275,14 +278,16 @@ export default function ResearchPage() {
 
       <div className="p-6">
         {error && (
-          <div className="mb-4 p-4 rounded-md bg-accent-error/10 border border-accent-error/30">
-            <p className="font-dm-mono text-sm text-accent-error">{error}</p>
-            <button
-              onClick={runResearch}
-              className="mt-2 font-dm-mono text-xs text-accent-primary hover:underline"
-            >
-              Retry
-            </button>
+          <div className="mb-4">
+            <StepFailureCard
+              stepNumber={1}
+              stepLabel="Research"
+              errorMessage={error}
+              showDownstreamWarning
+              downstreamCount={STEP_DOWNSTREAM[1].length}
+              onRerunStep={() => { rerunStep(1); router.push("/create/research"); }}
+              onRerunFromHere={() => { rerunStep(1); router.push("/create/research"); }}
+            />
           </div>
         )}
 

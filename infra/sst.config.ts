@@ -108,8 +108,8 @@ export default $config({
     const codeAgent = new sst.aws.Function("CodeAgent", {
       handler: "lambdas/code-agent/src/handler.handler",
       runtime: "container",
-      timeout: "1 minute",   // 30s sandbox + 15s Haiku gen + buffer
-      memory: "1024 MB",
+      timeout: "2 minutes",  // 3 attempts × (30s sandbox + 15s code-gen) + buffer
+      memory: "2048 MB",     // reflect loop: up to 3 child_process.fork() + Bedrock calls
       environment: {
         ...sharedEnv,
         LAMBDA_CODE_AGENT: "rrq-code-agent",

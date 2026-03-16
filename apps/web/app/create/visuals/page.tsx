@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 
 export default function VisualsPage() {
-  const { setStep, stepStatuses } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   const { proceedAfterVisuals } = useDirectorNavigation();
 
   useEffect(() => { setStep(9); }, [setStep]);
@@ -17,6 +20,21 @@ export default function VisualsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepStatuses[9]]);
+
+  if (stepStatuses[9] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={9}
+          stepLabel="Visuals"
+          errorMessage="Visuals generation failed."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[9].length}
+          onRerunStep={() => { rerunStep(9); router.push("/create/visuals"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting

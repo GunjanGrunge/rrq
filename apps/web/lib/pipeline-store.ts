@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type StepStatus = "ready" | "running" | "complete" | "error";
+export type StepStatus = "ready" | "running" | "complete" | "error" | "stale";
 
 export type Tone = "informative" | "entertaining" | "documentary" | "controversial" | "persuasive";
 
@@ -52,6 +52,34 @@ export interface BriefData {
   voiceMode: "ai" | "self";
   rexScore?: RexScoreData;
 }
+
+/**
+ * Maps step N → all downstream steps whose outputs are invalidated if step N reruns.
+ * Used by rerunStep() to cascade stale status.
+ */
+export const STEP_DOWNSTREAM: Record<number, number[]> = {
+  1: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  2: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  3: [4, 13],           // SEO feeds quality gate + upload metadata
+  4: [5, 6, 7, 8, 9, 10, 11, 12, 13],
+  5: [10, 11, 12, 13],
+  6: [10, 11, 12, 13],
+  7: [10, 11, 12, 13],
+  8: [10, 11, 12, 13],
+  9: [10, 11, 12, 13],
+  10: [11, 12, 13],
+  11: [12, 13],
+  12: [13],
+  13: [],
+};
+
+/** Director Mode gates that guard downstream steps. */
+const GATE_STEP_BOUNDARIES: Array<{ gateId: GateId; protectsAfterStep: number }> = [
+  { gateId: "gate-script",  protectsAfterStep: 2  },
+  { gateId: "gate-seo",     protectsAfterStep: 3  },
+  { gateId: "gate-visuals", protectsAfterStep: 9  },
+  { gateId: "gate-publish", protectsAfterStep: 11 },
+];
 
 const INITIAL_GATE: ApprovalGateState = {
   status: "idle",
@@ -130,6 +158,7 @@ interface PipelineStore {
   setStepStatus: (step: number, status: StepStatus) => void;
   setStepOutput: (step: number, output: unknown) => void;
   resetPipeline: () => void;
+  rerunStep: (stepNumber: number) => void;
 
   // Director Mode gate actions
   openGate: (gateId: GateId) => void;
@@ -291,6 +320,44 @@ export const usePipelineStore = create<PipelineStore>()(
               "gate-publish": { ...INITIAL_GATE },
             },
             pendingGate: null,
+          });
+          return { sessions, ...syncDerived(sessions, state.activeJobId) };
+        });
+      },
+
+      rerunStep: (stepNumber) => {
+        set((state) => {
+          const active = state.activeJobId ? state.sessions[state.activeJobId] : null;
+          if (!active) return state;
+
+          const downstream = STEP_DOWNSTREAM[stepNumber] ?? [];
+          const newStatuses = { ...active.stepStatuses };
+
+          // Reset target step — clear output so page auto-runs
+          newStatuses[stepNumber] = "ready";
+          const newOutputs = { ...active.outputs };
+          delete newOutputs[stepNumber];
+
+          // Mark downstream steps stale (preserve output for comparison)
+          for (const ds of downstream) {
+            if (newStatuses[ds] === "complete" || newStatuses[ds] === "error") {
+              newStatuses[ds] = "stale";
+            }
+          }
+
+          // Reset any Director Mode gates that this step's rerun invalidates
+          const newGates = { ...active.approvalGates };
+          for (const { gateId, protectsAfterStep } of GATE_STEP_BOUNDARIES) {
+            if (stepNumber <= protectsAfterStep && newGates[gateId].status === "approved") {
+              newGates[gateId] = { ...INITIAL_GATE };
+            }
+          }
+
+          const sessions = patchSession(state.sessions, state.activeJobId, {
+            stepStatuses: newStatuses,
+            outputs: newOutputs,
+            currentStep: stepNumber,
+            approvalGates: newGates,
           });
           return { sessions, ...syncDerived(sessions, state.activeJobId) };
         });

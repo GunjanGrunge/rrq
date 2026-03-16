@@ -1,6 +1,6 @@
 "use client";
 
-type Status = "ready" | "running" | "complete" | "error";
+type Status = "ready" | "running" | "complete" | "error" | "stale";
 
 interface StatusPillProps {
   status: Status;
@@ -35,6 +35,12 @@ const STATUS_CONFIG: Record<
     text: "text-accent-error",
     border: "border-accent-error",
     label: "ERROR",
+  },
+  stale: {
+    dot: "bg-accent-primary/40",
+    text: "text-accent-primary/60",
+    border: "border-accent-primary/30",
+    label: "STALE",
   },
 };
 

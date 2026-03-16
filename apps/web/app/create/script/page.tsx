@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type {
@@ -12,6 +13,7 @@ import type {
 } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
 import StepProgressCard from "@/components/pipeline/StepProgressCard";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 
 const SCRIPT_STAGES = [
   "Research reviewed + freshness checked",
@@ -47,9 +49,10 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 };
 
 export default function ScriptPage() {
-  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses } =
+  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses, rerunStep } =
     usePipelineStore();
   const { proceedAfterScript, isDirectorMode } = useDirectorNavigation();
+  const router = useRouter();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
   const [script, setScript] = useState<ScriptOutput | null>(
     (outputs[2] as ScriptOutput) ?? null
@@ -95,7 +98,7 @@ export default function ScriptPage() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (researchOutput && !script && !isRunning && stepStatuses[2] !== "complete") {
+    if (researchOutput && !script && !isRunning && !["complete", "running"].includes(stepStatuses[2])) {
       runScript();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,14 +164,16 @@ export default function ScriptPage() {
       </div>
 
       {error && (
-        <div className="mx-6 mt-4 p-4 rounded-md bg-accent-error/10 border border-accent-error/30">
-          <p className="font-dm-mono text-sm text-accent-error">{error}</p>
-          <button
-            onClick={runScript}
-            className="mt-2 font-dm-mono text-xs text-accent-primary hover:underline"
-          >
-            Retry
-          </button>
+        <div className="mx-6 mt-4">
+          <StepFailureCard
+            stepNumber={2}
+            stepLabel="Script"
+            errorMessage={error}
+            showDownstreamWarning
+            downstreamCount={STEP_DOWNSTREAM[2].length}
+            onRerunStep={() => { rerunStep(2); router.push("/create/script"); }}
+            onRerunFromHere={() => { rerunStep(2); router.push("/create/script"); }}
+          />
         </div>
       )}
 

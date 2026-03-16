@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type {
   ResearchOutput,
@@ -11,6 +12,7 @@ import type {
 } from "@/lib/types/pipeline";
 import StatusPill from "@/components/ui/StatusPill";
 import StepProgressCard from "@/components/pipeline/StepProgressCard";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 
 const QUALITY_STAGES = [
   "Content read + facts verified live",
@@ -30,8 +32,9 @@ const DIMENSION_LABELS: Record<string, string> = {
 };
 
 export default function QualityPage() {
-  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses } =
+  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses, rerunStep } =
     usePipelineStore();
+  const router = useRouter();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
   const scriptOutput = outputs[2] as ScriptOutput | undefined;
   const seoOutput = outputs[3] as SEOOutput | undefined;
@@ -115,7 +118,7 @@ export default function QualityPage() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (researchOutput && scriptOutput && seoOutput && !quality && !isRunning && stepStatuses[4] !== "complete") {
+    if (researchOutput && scriptOutput && seoOutput && !quality && !isRunning && !["complete", "running"].includes(stepStatuses[4])) {
       runQuality(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,14 +153,16 @@ export default function QualityPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-4 rounded-md bg-accent-error/10 border border-accent-error/30">
-          <p className="font-dm-mono text-sm text-accent-error">{error}</p>
-          <button
-            onClick={() => runQuality(attempt)}
-            className="mt-2 font-dm-mono text-xs text-accent-primary hover:underline"
-          >
-            Retry
-          </button>
+        <div className="mb-4">
+          <StepFailureCard
+            stepNumber={4}
+            stepLabel="Quality Gate"
+            errorMessage={error}
+            showDownstreamWarning
+            downstreamCount={STEP_DOWNSTREAM[4].length}
+            onRerunStep={() => { rerunStep(4); router.push("/create/quality"); }}
+            onRerunFromHere={() => { rerunStep(4); router.push("/create/quality"); }}
+          />
         </div>
       )}
 

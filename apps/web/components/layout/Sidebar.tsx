@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useUIStore } from "@/lib/ui-store";
-import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2 } from "lucide-react";
+import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2, Home } from "lucide-react";
 import StatusPill from "@/components/ui/StatusPill";
 import type { GateId, GateStatus, SessionState } from "@/lib/pipeline-store";
 
@@ -187,6 +187,25 @@ export default function Sidebar() {
         >
           <X size={14} />
         </button>
+      </div>
+
+      {/* Home */}
+      <div className="px-3 py-2 border-b border-bg-border">
+        <Link
+          href="/home"
+          className={`
+            flex items-center gap-2 px-3 py-2 rounded-md transition-all duration-200
+            ${pathname === "/home"
+              ? "bg-accent-primary text-text-inverse"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
+            }
+          `}
+        >
+          <Home size={14} />
+          <span className="font-syne font-bold text-sm tracking-widest uppercase">
+            Home
+          </span>
+        </Link>
       </div>
 
       {/* Zeus Command Center */}

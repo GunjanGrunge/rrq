@@ -1,12 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 
 export default function ShortsPage() {
-  const { setStep } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   useEffect(() => { setStep(12); }, [setStep]);
+
+  if (stepStatuses[12] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={12}
+          stepLabel="Shorts"
+          errorMessage="Shorts generation failed."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[12].length}
+          onRerunStep={() => { rerunStep(12); router.push("/create/shorts"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting

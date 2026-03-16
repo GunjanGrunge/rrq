@@ -1,12 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 
 export default function AVSyncPage() {
-  const { setStep } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   useEffect(() => { setStep(10); }, [setStep]);
+
+  if (stepStatuses[10] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={10}
+          stepLabel="AV Sync"
+          errorMessage="AV Sync generation failed."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[10].length}
+          onRerunStep={() => { rerunStep(10); router.push("/create/av-sync"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting

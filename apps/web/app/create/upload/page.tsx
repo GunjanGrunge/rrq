@@ -1,12 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 
 export default function UploadPage() {
-  const { setStep } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   useEffect(() => { setStep(13); }, [setStep]);
+
+  if (stepStatuses[13] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={13}
+          stepLabel="Upload"
+          errorMessage="Upload generation failed."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[13].length}
+          onRerunStep={() => { rerunStep(13); router.push("/create/upload"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting

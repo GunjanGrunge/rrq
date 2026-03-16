@@ -1,0 +1,94 @@
+<h2>Bell Notification Dropdown</h2>
+<p class="subtitle">How the bell icon + dropdown panel should look in the header</p>
+
+<div class="mockup">
+  <div class="mockup-header">Header — right side (bell replaces history/clock icon)</div>
+  <div class="mockup-body" style="background:#0a0a0a;padding:16px;">
+
+    <!-- Header bar simulation -->
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:8px 16px;background:#111;border:1px solid #1e1e1e;border-radius:8px;margin-bottom:20px;">
+      <div style="color:#888;font-size:11px;font-family:monospace;">··· pipeline progress ···</div>
+      <div style="flex:1;"></div>
+      <!-- Bell icon with badge -->
+      <div style="position:relative;cursor:pointer;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0ece4" stroke-width="1.5" style="display:block;">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span style="position:absolute;top:-5px;right:-6px;background:#f5a623;color:#000;font-size:9px;font-weight:bold;border-radius:8px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 3px;">3</span>
+      </div>
+      <!-- User button placeholder -->
+      <div style="width:28px;height:28px;background:#333;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#888;font-size:10px;">U</div>
+    </div>
+
+    <!-- Dropdown panel -->
+    <div style="width:340px;margin:0 auto;background:#111;border:1px solid #1e1e1e;border-radius:10px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+
+      <!-- Dropdown header -->
+      <div style="padding:12px 16px;border-bottom:1px solid #1e1e1e;display:flex;align-items:center;justify-content:space-between;">
+        <span style="color:#f0ece4;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;">Notifications</span>
+        <span style="color:#888;font-family:monospace;font-size:10px;cursor:pointer;">Clear read</span>
+      </div>
+
+      <!-- Notification item 1 — unread, critical -->
+      <div style="padding:12px 16px;border-bottom:1px solid #1e1e1e;display:flex;gap:10px;align-items:flex-start;background:#1a1a0a;">
+        <div style="width:7px;height:7px;background:#f5a623;border-radius:50%;margin-top:4px;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+            <span style="color:#f5a623;font-family:monospace;font-size:10px;font-weight:bold;">ZEUS</span>
+            <span style="color:#555;font-family:monospace;font-size:9px;">2m ago</span>
+          </div>
+          <div style="color:#f0ece4;font-family:monospace;font-size:11px;margin-bottom:2px;">Approve: "AI Takes Over Finance"</div>
+          <div style="color:#888;font-family:monospace;font-size:10px;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">Zeus requests final publish approval before upload at 3pm slot</div>
+        </div>
+      </div>
+
+      <!-- Notification item 2 — unread -->
+      <div style="padding:12px 16px;border-bottom:1px solid #1e1e1e;display:flex;gap:10px;align-items:flex-start;background:#1a1a0a;">
+        <div style="width:7px;height:7px;background:#f5a623;border-radius:50%;margin-top:4px;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+            <span style="color:#888;font-family:monospace;font-size:10px;font-weight:bold;">REX</span>
+            <span style="color:#555;font-family:monospace;font-size:9px;">14m ago</span>
+          </div>
+          <div style="color:#f0ece4;font-family:monospace;font-size:11px;margin-bottom:2px;">Update on "Quantum Computing Explained"</div>
+          <div style="color:#888;font-family:monospace;font-size:10px;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">Confidence score raised to 91% — trending in 3 new markets</div>
+        </div>
+      </div>
+
+      <!-- Notification item 3 — unread -->
+      <div style="padding:12px 16px;border-bottom:1px solid #1e1e1e;display:flex;gap:10px;align-items:flex-start;background:#1a1a0a;">
+        <div style="width:7px;height:7px;background:#f5a623;border-radius:50%;margin-top:4px;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+            <span style="color:#888;font-family:monospace;font-size:10px;font-weight:bold;">ORACLE</span>
+            <span style="color:#555;font-family:monospace;font-size:9px;">1h ago</span>
+          </div>
+          <div style="color:#f0ece4;font-family:monospace;font-size:11px;margin-bottom:2px;">Domain 8 audit complete</div>
+          <div style="color:#888;font-family:monospace;font-size:10px;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">No critical CVEs found. 2 low-severity advisories flagged for review</div>
+        </div>
+      </div>
+
+      <!-- Read notification (dimmed) -->
+      <div style="padding:12px 16px;border-bottom:1px solid #1e1e1e;display:flex;gap:10px;align-items:flex-start;opacity:0.45;">
+        <div style="width:7px;height:7px;background:#333;border-radius:50%;margin-top:4px;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+            <span style="color:#555;font-family:monospace;font-size:10px;font-weight:bold;">SYSTEM</span>
+            <span style="color:#444;font-family:monospace;font-size:9px;">3h ago</span>
+          </div>
+          <div style="color:#888;font-family:monospace;font-size:11px;margin-bottom:2px;">Pipeline job completed</div>
+          <div style="color:#555;font-family:monospace;font-size:10px;">Video "What if AI..." uploaded successfully</div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:10px 16px;text-align:center;">
+        <span style="color:#f5a623;font-family:monospace;font-size:11px;cursor:pointer;letter-spacing:0.5px;">View all in Inbox →</span>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;font-family:monospace;font-size:10px;color:#555;text-align:center;">
+      • Unread = amber dot + highlighted background &nbsp;|&nbsp; Read = dimmed, no dot &nbsp;|&nbsp; "Clear read" removes only read items
+    </div>
+  </div>
+</div>

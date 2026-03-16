@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { useDirectorNavigation } from "@/lib/hooks/use-director-navigation";
 import { useStepProgress } from "@/lib/hooks/use-step-progress";
 import type {
@@ -12,6 +13,7 @@ import type {
 import StatusPill from "@/components/ui/StatusPill";
 import MetadataChip from "@/components/ui/MetadataChip";
 import StepProgressCard from "@/components/pipeline/StepProgressCard";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 
 const SEO_STAGES = [
   "Script and research absorbed",
@@ -20,9 +22,10 @@ const SEO_STAGES = [
 ];
 
 export default function SEOPage() {
-  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses } =
+  const { brief, setStep, setStepStatus, setStepOutput, outputs, stepStatuses, rerunStep } =
     usePipelineStore();
   const { proceedAfterSEO, isDirectorMode } = useDirectorNavigation();
+  const router = useRouter();
   const researchOutput = outputs[1] as ResearchOutput | undefined;
   const scriptOutput = outputs[2] as ScriptOutput | undefined;
   const [seo, setSeo] = useState<SEOOutput | null>(
@@ -67,7 +70,7 @@ export default function SEOPage() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (researchOutput && scriptOutput && !seo && !isRunning && stepStatuses[3] !== "complete") {
+    if (researchOutput && scriptOutput && !seo && !isRunning && !["complete", "running"].includes(stepStatuses[3])) {
       runSEO();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,14 +99,16 @@ export default function SEOPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-4 rounded-md bg-accent-error/10 border border-accent-error/30">
-          <p className="font-dm-mono text-sm text-accent-error">{error}</p>
-          <button
-            onClick={runSEO}
-            className="mt-2 font-dm-mono text-xs text-accent-primary hover:underline"
-          >
-            Retry
-          </button>
+        <div className="mb-4">
+          <StepFailureCard
+            stepNumber={3}
+            stepLabel="SEO"
+            errorMessage={error}
+            showDownstreamWarning
+            downstreamCount={STEP_DOWNSTREAM[3].length}
+            onRerunStep={() => { rerunStep(3); router.push("/create/seo"); }}
+            onRerunFromHere={() => { rerunStep(3); router.push("/create/seo"); }}
+          />
         </div>
       )}
 

@@ -1,12 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePipelineStore } from "@/lib/pipeline-store";
+import { useRouter } from "next/navigation";
+import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
+import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 
 export default function AvatarPage() {
-  const { setStep } = usePipelineStore();
+  const { setStep, stepStatuses, rerunStep } = usePipelineStore();
+  const router = useRouter();
   useEffect(() => { setStep(6); }, [setStep]);
+
+  if (stepStatuses[6] === "error") {
+    return (
+      <div className="flex-1 p-8">
+        <StepFailureCard
+          stepNumber={6}
+          stepLabel="Avatar"
+          errorMessage="Avatar generation failed. This may be a temporary EC2 issue."
+          showDownstreamWarning
+          downstreamCount={STEP_DOWNSTREAM[6].length}
+          onRerunStep={() => { rerunStep(6); router.push("/create/avatar"); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <PipelineStepWaiting
