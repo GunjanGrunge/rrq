@@ -1,9 +1,10 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { History, Settings, Menu } from "lucide-react";
+import { Settings, Menu } from "lucide-react";
 import Link from "next/link";
 import PipelineProgress from "./PipelineProgress";
+import BellNotification from "./BellNotification";
 import { useUIStore } from "@/lib/ui-store";
 
 export default function Header() {
@@ -21,7 +22,7 @@ export default function Header() {
       </button>
 
       {/* Left: Wordmark */}
-      <Link href="/" className="flex items-center gap-2 group">
+      <Link href="/home" className="flex items-center gap-2 group">
         <div className="w-1.5 h-1.5 bg-accent-primary group-hover:scale-110 transition-transform duration-200 shrink-0" />
         <span className="font-syne font-bold text-sm text-text-primary tracking-[0.25em] uppercase">
           RRQ
@@ -35,18 +36,14 @@ export default function Header() {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-4">
-        <button
-          className="text-text-secondary hover:text-text-primary transition-colors duration-200"
-          title="Job history"
-        >
-          <History size={16} />
-        </button>
-        <button
+        <Link
+          href="/settings"
           className="text-text-secondary hover:text-text-primary transition-colors duration-200"
           title="Settings"
         >
           <Settings size={16} />
-        </button>
+        </Link>
+        <BellNotification />
         <UserButton
           appearance={{
             elements: {
