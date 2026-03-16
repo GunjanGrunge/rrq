@@ -39,7 +39,7 @@ export default function Header() {
         <Link
           href="/settings"
           className="text-text-secondary hover:text-text-primary transition-colors duration-200"
-          title="Settings"
+          aria-label="Settings"
         >
           <Settings size={16} />
         </Link>

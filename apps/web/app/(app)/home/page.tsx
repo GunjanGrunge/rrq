@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import {
   useNotificationStore,
-  getUnreadCount,
 } from "@/lib/notifications/notification-store";
 import { STEP_SLUGS, STEPS } from "@/lib/pipeline-steps";
 import StatusPill from "@/components/ui/StatusPill";
@@ -31,7 +30,9 @@ export default function HomePage() {
   const router = useRouter();
   const { sessions } = usePipelineStore();
   const { messages } = useNotificationStore();
-  const unreadCount = getUnreadCount(messages);
+  const unreadCount = useNotificationStore(
+    (s) => s.messages.filter((m) => !m.read && !m.deletedAt).length
+  );
 
   // Active sessions: at least one step is "running"
   const activeSessions = Object.values(sessions).filter((session) =>
@@ -40,7 +41,7 @@ export default function HomePage() {
 
   function handleJobCardClick(sessionCurrentStep: number) {
     const slug = STEP_SLUGS[sessionCurrentStep];
-    if (!slug || sessionCurrentStep === 0) return;
+    if (!slug) return;
     router.push(`/create/${slug}`);
   }
 
@@ -144,6 +145,9 @@ export default function HomePage() {
                   <div
                     key={session.jobId}
                     onClick={isClickable ? () => handleJobCardClick(currentStep) : undefined}
+                    onKeyDown={isClickable ? (e) => { if (e.key === "Enter" || e.key === " ") handleJobCardClick(currentStep); } : undefined}
+                    role={isClickable ? "button" : undefined}
+                    tabIndex={isClickable ? 0 : undefined}
                     className={`border border-bg-border bg-bg-surface rounded-xl p-5 ${
                       isClickable
                         ? "cursor-pointer hover:border-accent-primary/30 transition-colors"

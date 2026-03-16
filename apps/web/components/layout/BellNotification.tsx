@@ -6,12 +6,12 @@ import { Bell } from "lucide-react";
 import Link from "next/link";
 import {
   useNotificationStore,
-  getUnreadCount,
 } from "@/lib/notifications/notification-store";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
@@ -23,7 +23,9 @@ export default function BellNotification() {
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { messages, markRead, deleteMessage } = useNotificationStore();
-  const unreadCount = getUnreadCount(messages);
+  const unreadCount = useNotificationStore(
+    (s) => s.messages.filter((m) => !m.read && !m.deletedAt).length
+  );
 
   // Close on outside click
   useEffect(() => {
