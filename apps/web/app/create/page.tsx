@@ -51,7 +51,7 @@ const DIMENSION_LABELS: Record<string, string> = {
 
 export default function CreatePage() {
   const router = useRouter();
-  const { setBrief, brief: activeBrief, newSession: createNewSession, setStep } = usePipelineStore();
+  const { setBrief, newSession: createNewSession, setStep, activeJobId } = usePipelineStore();
 
   const [topic, setTopic] = useState("");
   const [duration, setDuration] = useState(10);
@@ -75,20 +75,44 @@ export default function CreatePage() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
 
-  // Rex score state — initialised from persisted brief if available
-  const [rexScore, setRexScore] = useState<RexScore | null>(activeBrief?.rexScore ?? null);
+  // Rex score state
+  const [rexScore, setRexScore] = useState<RexScore | null>(null);
   const [rexLoading, setRexLoading] = useState(false);
   // Track if rex has already been triggered for this brief session
   const rexTriggeredRef = useRef(false);
 
+  // Reset and restore all local state whenever the active session changes
+  // This fixes: (1) Rex score lost on navigation return, (2) clip switch shows stale content
   useEffect(() => {
-    const { sessions } = usePipelineStore.getState();
-    if (Object.keys(sessions).length === 0) {
+    const state = usePipelineStore.getState();
+
+    if (Object.keys(state.sessions).length === 0) {
       createNewSession();
+      return;
     }
+
+    // Reset all local state first so switching clips never bleeds state
+    setTopic("");
+    setDuration(10);
+    setSelectedTones([]);
+    setSelectedNiches([]);
+    setNicheLocked(false);
+    setGenerateShorts(false);
+    setShortsType("convert");
+    setQualityThreshold(7);
+    setDirectorMode(false);
+    setVoiceMode("ai");
+    setChatMessages([]);
+    setChatInput("");
+    setTopicConfirmed(false);
+    setBriefReady(false);
+    setRexScore(null);
+    setIsMidPipeline(false);
+    rexTriggeredRef.current = false;
+    streamingRef.current = false;
+
     setStep(0);
 
-    const state = usePipelineStore.getState();
     const restoredBrief = state.brief;
     if (restoredBrief?.chatMessages && restoredBrief.chatMessages.length > 0) {
       setChatMessages(restoredBrief.chatMessages);
@@ -121,8 +145,9 @@ export default function CreatePage() {
         setIsMidPipeline(true);
       }
     }
+  // Re-run whenever the active session changes — this is intentional
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeJobId]);
 
   // Scroll chat container (not page) whenever messages change
   useEffect(() => {
@@ -347,6 +372,8 @@ export default function CreatePage() {
       chatMessages,
       directorMode,
       voiceMode,
+      // Preserve Rex score so it survives navigation to later steps and back
+      rexScore: rexScore ?? undefined,
     });
     setStep(1);
 

@@ -1273,3 +1273,835 @@ interface ToneRefinementSuggestion {
 User accepts → `user-settings.channelTone` updated, `definedAt` → `"evolved"`.
 User dismisses → Oracle does not re-suggest for 30 days (stored in `oracle-updates` table).
 Zeus logs the interaction as an episode regardless of outcome.
+
+---
+
+## Domain 13 — Agent Performance Evaluation Layer
+
+Oracle is the system's measurement and evidence authority. Every agent in the
+pipeline is continuously evaluated against a shared scoring model. Zeus remains
+the final governance authority — Oracle surfaces evidence, Zeus approves action.
+
+### Why This Exists
+
+Without a formal evaluation layer, agents can execute well locally but drift
+into outdated strategies that hurt global outcomes. Harvy (ROI brain) is
+especially risky here — stale assumptions burn ad budget fast. A shared
+evaluation framework creates compounding improvement across every agent.
+
+**Role split (non-negotiable):**
+- **Oracle** — evaluates, measures, attributes outcomes, detects drift
+- **Zeus** — approves trust-band changes, policy updates, guardrail enforcement
+- **Harvy** — recommends financial actions; Oracle audits Harvy's decision quality
+- **Other agents** — execute domain responsibilities, emit structured decision logs
+
+---
+
+### Universal Agent Score Formula
+
+One composite score per agent per evaluation window. Hard-coded weights — do
+not vary these by agent. Agent-specific overlays are additive, not replacements.
+
+```typescript
+// All components normalised to 0–100 before weighting
+AgentScore =
+  0.30 * OutcomeLift      +  // incremental KPI gain vs baseline
+  0.20 * DecisionAccuracy +  // correct_decisions / total_decisions
+  0.15 * Calibration      +  // confidence vs actual hit rate alignment
+  0.15 * Efficiency       +  // outcome per cost/time/token
+  0.10 * Reliability      +  // success rate minus retry/timeout rate
+  0.10 * Compliance          // policy adherence, zero guardrail breaches = 100
+```
+
+### Trust Bands — Hard-Coded
+
+```
+85–100  HIGH_TRUST    Auto-scale within guardrails. Oracle updates auto-inject.
+70–84   MED_TRUST     Test-first, then scale. Zeus reviews before full rollout.
+50–69   LOW_TRUST     Zeus approval required for any action. Weekly review.
+< 50    RESTRICTED    Limited autonomy. Oracle recommendations = HOLD/TEST only.
+```
+
+Trust bands stored in `agent-policies` table:
+- `agentId`: the agent being scored
+- `policyKey`: `"TRUST_BAND"`
+- `value`: current band name (`"HIGH_TRUST"` etc.)
+- `source`: `"ORACLE"` (Oracle writes, Zeus confirms)
+
+### Hard-Coded Score Penalties
+
+```typescript
+const ORACLE_PENALTIES = {
+  CRITICAL_BAD_RECOMMENDATION: -10, // high-confidence rec that produced negative outcome
+  THREE_LOW_IMPACT_IN_A_ROW:    -5,  // 3 consecutive updates with no measurable KPI move
+  MISSING_EVIDENCE_FIELDS:       -3, // decision log missing required fields
+  DEPRECATED_GUIDANCE_LATE:      -5, // flagging deprecated guidance after it caused harm
+} as const;
+```
+
+---
+
+### Decision Data Contract — Required for All Agents
+
+Every agent decision must log a `DecisionEvent` to DynamoDB `agent-decision-log`
+before acting. Oracle reads these at evaluation windows (24h / 7d / 30d).
+
+```typescript
+interface DecisionEvent {
+  eventId: string;              // UUID — PK
+  agentId: string;              // "harvy" | "zeus" | "rex" | "regum" | "qeon" | ...
+  decisionType: string;         // e.g. "SCALE_CAMPAIGN" | "GREENLIGHT_TOPIC" | "PAUSE_AD"
+  hypothesis: string;           // one sentence: what the agent expected to happen
+  confidence: number;           // 0–1: agent's stated confidence at decision time
+  expectedKPIImpact: {
+    metric: string;             // e.g. "subscriberCPA" | "viewRetention" | "ROAS"
+    expectedDelta: number;      // e.g. +0.15 (15% improvement expected)
+  };
+  spendOrComputeCost: number;   // USD — ad spend, Lambda compute, or EC2 cost
+  timestamp: string;            // ISO — when decision was made
+  contextSnapshot: Record<string, unknown>; // key input signals at decision time
+
+  // Filled in by Oracle at evaluation windows
+  outcomes: {
+    at24h: OutcomeRecord | null;
+    at7d:  OutcomeRecord | null;
+    at30d: OutcomeRecord | null;
+  };
+  evaluationLabel: "correct" | "partially_correct" | "incorrect" | "pending";
+}
+
+interface OutcomeRecord {
+  actualKPIDelta: number;       // what actually happened
+  evaluatedAt: string;          // ISO timestamp
+  evaluatorNote: string;        // Oracle one-line explanation
+}
+```
+
+`agent-decision-log` DynamoDB table:
+- PK: `eventId`
+- GSI 1: `agentId-timestamp` — Oracle queries per agent per window
+- GSI 2: `decisionType-timestamp` — cross-agent decision type analysis
+- TTL: 90 days
+
+---
+
+### Agent-Specific Metric Overlays
+
+These are evaluated IN ADDITION to the universal formula. They do not replace
+any component — they are surfaced as supplementary signals in Zeus's briefing.
+
+```typescript
+const AGENT_METRIC_OVERLAYS: Record<string, string[]> = {
+  zeus:   ["arbitration_win_rate", "false_escalation_rate", "portfolio_roi_lift"],
+  harvy:  ["incremental_roi", "cost_per_qualified_watch_hour",
+           "cost_per_incremental_subscriber", "scale_decision_precision",
+           "pause_decision_precision", "budget_pacing_accuracy", "downside_prevented"],
+  oracle: [], // Oracle uses its own self-score (see below)
+  rex:    ["trend_hit_rate", "false_positive_rate", "lead_time_before_peak",
+           "topic_maturity_prediction_error", "greenlight_downstream_success"],
+  regum:  ["brief_to_performance_lift", "slot_efficiency",
+           "pivot_success_rate", "strategy_reversal_regret", "niche_allocation_efficiency"],
+  qeon:   ["completion_rate", "on_time_delivery_rate",
+           "step_retry_rate", "defect_escape_rate", "throughput_per_cycle"],
+  muse:   ["hook_retention_lift", "retention_stability_mid_video",
+           "script_contribution_to_ctr", "blueprint_adherence",
+           "council_pass_without_major_rework"],
+  vera:   ["detection_precision", "detection_recall", "false_block_rate",
+           "post_release_quality_incidents", "qa_turnaround_time"],
+  theo:   ["title_thumbnail_test_lift", "community_sentiment_shift",
+           "comment_handling_quality", "recommendation_hit_rate",
+           "engagement_to_retention_lift"],
+  aria:   ["theme_allocation_return", "drift_alert_correctness",
+           "rebalance_effectiveness", "evidence_log_accuracy",
+           "risk_adjusted_portfolio_performance"],
+  sniper: ["geo_lift_vs_baseline", "market_selection_precision",
+           "cpm_efficiency_by_market", "localization_lift", "expansion_success_rate"],
+  tony:   ["asset_acceptance_rate", "render_success_rate", "re_render_rate",
+           "render_efficiency", "asset_level_performance_lift"],
+  jason:  ["blocker_resolution_time", "workflow_sla_adherence",
+           "dependency_delay_reduction", "planning_predictability",
+           "coordination_overhead_efficiency"],
+};
+```
+
+---
+
+### Oracle Self-Score — Deterministic Formula
+
+Oracle does not use another agent to evaluate itself. Hard-coded 6-component
+formula. Computed weekly during the Sunday WEEKLY_PORTFOLIO run.
+
+```typescript
+interface OracleSelfScore {
+  // Component 1: Precision of Updates (30%)
+  // useful_updates / total_updates
+  // Useful = update led to positive KPI movement at 7d or 30d window
+  updatePrecision: number;        // 0–1
+
+  // Component 2: False Alarm Rate (20%)
+  // bad_updates / total_updates
+  // Bad = no impact or negative impact after adoption
+  falseAlarmRate: number;         // 0–1 (lower is better — inverted before weighting)
+
+  // Component 3: Freshness (15%)
+  // Average age of evidence used in updates (days). Newer = higher score.
+  // score = max(0, 1 - (avgEvidenceAgeDays / 30))
+  evidenceFreshness: number;      // 0–1
+
+  // Component 4: Evidence Quality (15%)
+  // Weighted source trust score × cross-source confirmation count
+  evidenceQuality: number;        // 0–1
+
+  // Component 5: Calibration (10%)
+  // |predicted_confidence - actual_hit_rate| across all recommendations
+  // score = 1 - avg(abs(confidence - hit_rate))
+  calibrationScore: number;       // 0–1
+
+  // Component 6: Actionability (10%)
+  // % of updates with clear agent instruction + measurable expected KPI impact
+  actionabilityScore: number;     // 0–1
+
+  // Final composite (all components normalised to 0–100 before weighting)
+  compositeScore: number;         // 0–100
+  trustBand: "HIGH_TRUST" | "MED_TRUST" | "LOW_TRUST" | "RESTRICTED";
+  evaluatedAt: string;
+  penaltiesApplied: Array<{ reason: string; points: number }>;
+}
+
+function computeOracleSelfScore(metrics: OracleSelfScore): number {
+  const precision    = metrics.updatePrecision * 100;
+  const falseAlarm   = (1 - metrics.falseAlarmRate) * 100; // inverted
+  const freshness    = metrics.evidenceFreshness * 100;
+  const quality      = metrics.evidenceQuality * 100;
+  const calibration  = metrics.calibrationScore * 100;
+  const actionable   = metrics.actionabilityScore * 100;
+
+  const raw =
+    0.30 * precision  +
+    0.20 * falseAlarm +
+    0.15 * freshness  +
+    0.15 * quality    +
+    0.10 * calibration +
+    0.10 * actionable;
+
+  const totalPenalty = metrics.penaltiesApplied.reduce(
+    (sum, p) => sum + Math.abs(p.points), 0
+  );
+  return Math.max(0, Math.round(raw - totalPenalty));
+}
+```
+
+---
+
+### Evaluation Windows
+
+```
+24h   Operational reliability and early quality signals only.
+      Weight: 0.15 — high noise, directional only.
+      Use for: step failures, timeout rates, defect escapes.
+
+7d    Primary performance truth window.
+      Weight: 0.50 — primary evaluation for all agents.
+      Use for: decision accuracy, KPI impact, calibration.
+
+30d   Durability, decay, and strategic correctness.
+      Weight: 0.35 — trend confirmation.
+      Use for: cohort quality, channel growth attribution, strategy reversal regret.
+```
+
+---
+
+### Harvy-Specific Evaluation
+
+Oracle treats Harvy as a first-class learning target. In addition to the
+universal score formula, Oracle tracks Harvy's recommendation accuracy over
+rolling 20-decision windows and feeds findings back via the calibration loop
+already defined in `skills/harvy/SKILL.md`.
+
+```typescript
+interface HarvyAuditRecord {
+  // Written by Oracle at 7d evaluation window
+  windowStart: string;
+  windowEnd: string;
+  totalRecommendations: number;
+  scaleDecisions:    { made: number; correct: number; precision: number };
+  pauseDecisions:    { made: number; correct: number; precision: number };
+  holdDecisions:     { made: number; correct: number; precision: number };
+  avgConfidenceError: number;   // abs(predictedROAS - actualROAS) / predictedROAS
+  downsidePrevented: number;    // USD: campaigns correctly paused before loss
+  falseNegativeCost: number;    // USD: campaigns Harvy held that would have scaled positively
+
+  // Oracle verdict
+  oracleVerdict: "CALIBRATED" | "OVERCONFIDENT" | "UNDERCONFIDENT" | "REVIEW";
+  verdictReason: string;
+  recommendedConfidenceAdjustment: number; // e.g. -0.10 if overconfident
+}
+```
+
+Harvy guardrails Oracle enforces (non-negotiable — Oracle flags, Zeus acts):
+```
+1. Never violate account safety caps (policy MIN_ACCOUNT_BALANCE)
+2. No SCALE without minimum data confidence (policy SCALE_MIN_IMPRESSIONS)
+3. Automatic pause flag on hard-loss conditions (ROAS < 1.0)
+4. SCALE only when quality metrics AND incrementality are both positive
+5. Any high-confidence wrong call (confidence > 0.80, label = "incorrect") →
+   Oracle writes HARVY_CALIBRATION_PENALTY to agent-policies immediately
+```
+
+---
+
+### Governance Workflow — Weekly Cycle
+
+```
+Sunday (WEEKLY_PORTFOLIO run):
+  Step 1  Oracle computes AgentScore for all 13 agents from agent-decision-log
+  Step 2  Oracle computes OracleSelfScore
+  Step 3  Oracle writes scorecards to agent-scores DynamoDB table
+          (existing table — new columns: oracleScore, trustBand, evaluationWindow)
+  Step 4  Oracle generates evidence-backed recommendations for any agent < 70
+  Step 5  Oracle routes recommendations to Zeus via zeus-briefs table
+
+Monday morning briefing (THE LINE → Zeus):
+  Zeus reviews scorecards and Oracle recommendations
+  Zeus approves or rejects trust-band changes
+  Zeus injects updated guidance into target agents via morning briefing payload
+  Agent receives updated policy at next run start (reads agent-policies table)
+
+Next Sunday:
+  Oracle re-measures — did Zeus's injection improve the agent's score?
+  Cycle compounds.
+```
+
+---
+
+### New DynamoDB Table: `agent-decision-log`
+
+```
+PK:  eventId     (String)
+SK:  agentId     (String)
+GSI 1: agentId-timestamp      — Oracle queries per agent per evaluation window
+GSI 2: decisionType-timestamp — cross-agent decision type analysis
+TTL: expiresAt (90 days)
+```
+
+Add `agent-decision-log` to CLAUDE.md DynamoDB tables list.
+
+---
+
+### Oracle Evaluation — Implementation Checklist
+
+```
+[ ] Create lib/oracle/evaluation/types.ts
+    — DecisionEvent, OutcomeRecord, AgentScoreCard, OracleSelfScore,
+      HarvyAuditRecord, AgentMetricOverlay
+
+[ ] Create lib/oracle/evaluation/score-formula.ts
+    — computeAgentScore()         universal formula, all agents
+    — computeOracleSelfScore()    deterministic self-evaluation
+    — applyPenalties()            ORACLE_PENALTIES constants
+    — assignTrustBand()           hard-coded band thresholds
+
+[ ] Create lib/oracle/evaluation/decision-log-db.ts
+    — writeDecisionEvent(event: DecisionEvent)
+    — getDecisionEvents(agentId, windowDays): DecisionEvent[]
+    — updateOutcome(eventId, window, outcome: OutcomeRecord)
+    — getPendingEvaluations(agentId): DecisionEvent[]
+
+[ ] Create lib/oracle/evaluation/harvy-audit.ts
+    — runHarvyAudit(windowDays: 7): HarvyAuditRecord
+    — applyHarvyCalibrationPenalty(adjustment: number)
+    — writeHarvyAuditRecord(record: HarvyAuditRecord)
+
+[ ] Create lib/oracle/evaluation/agent-scorecard.ts
+    — computeAllAgentScores(): AgentScoreCard[]
+    — writeScorecardsToAgentScores(cards: AgentScoreCard[])
+    — generateZeusRecommendations(cards: AgentScoreCard[]): string[]
+
+[ ] Wire into WEEKLY_PORTFOLIO step in zeusAnalyticsWorkflow
+    — after harvy-weekly-portfolio step
+    — step.run("oracle-evaluation") → computeAllAgentScores()
+    — step.run("oracle-self-score") → computeOracleSelfScore()
+    — step.run("oracle-zeus-brief") → writeOracleScoresBrief() → zeus-briefs
+
+[ ] Every existing agent decision point must emit writeDecisionEvent()
+    — Harvy: before every SCALE/PAUSE/HOLD/SKIP recommendation
+    — Zeus: before arbitration decisions and campaign actions
+    — Rex: before every GREENLIGHT
+    — Regum: before every QeonBrief generation
+    — Qeon: before pipeline launch
+    — Vera: before every QA verdict
+    — (other agents: add as they are built)
+
+[ ] Create agent-decision-log DynamoDB table (PK, SK, 2× GSI, TTL)
+[ ] Add agent-decision-log to CLAUDE.md DynamoDB table list
+
+[ ] Test: Harvy SCALE → writeDecisionEvent → 7d outcome → Oracle audit
+[ ] Test: OracleSelfScore with mock 10 updates → correct composite computed
+[ ] Test: Trust band written to agent-policies after Sunday evaluation
+[ ] Test: Penalty applied when Harvy confidence > 0.80 + label = "incorrect"
+[ ] Test: Zeus receives scorecard brief in Monday morning briefing payload
+[ ] Verify: No agent score logic in campaign-control.ts or budget-guard.ts
+[ ] Verify: Oracle never calls campaign-control.ts or budget-guard.ts
+
+---
+
+## Domain 14 — Agent Version Control + Evaluation Policy
+
+### Purpose
+
+Every agent in the RRQ system evolves over time — new Oracle guidance injections,
+prompt refinements, policy threshold changes. Without version control, there is no
+way to know which version of an agent produced a given decision, no way to compare
+before vs after a change, and no safe path to roll back when performance degrades.
+
+Domain 14 gives Oracle the authority to track every agent version, evaluate
+performance over a 7-day window, and recommend promotion or rollback to Zeus.
+Zeus approves all version state changes. Oracle recommends. Zeus acts.
+
+**This domain never touches campaign-control.ts or budget-guard.ts.**
+
+---
+
+### Version Control Model
+
+DynamoDB-only. No external repository required.
+
+Two tables handle the full version lifecycle:
+
+**`agent-version-registry`** — the manifest store (one record per version per agent)
+```
+PK: agentId
+SK: version  (e.g. "1.3.0")
+Fields:
+  status              "pending" | "active" | "stable" | "rolled_back" | "archived"
+  changeType          "PROMPT_UPDATE" | "PACKAGE_UPDATE" | "POLICY_UPDATE" | "MODEL_UPDATE"
+  parentVersion       previous version this was bumped from
+  activationTimestamp ISO timestamp when version went active
+  rollbackTo          version to revert to if rollback triggered
+  sourceUpdateId      Oracle update reference (oracle-updates table PK) — optional
+  changeNotes         plain English description of what changed
+  canaryShape         "TOPIC_SAMPLE" | "JOB_SAMPLE" | "EVENT_SAMPLE" (agent category)
+  oracleVerdict       "PROMOTE" | "HOLD" | "ROLLBACK_REQUIRED" | "pending"
+  verdictAt           ISO timestamp of Oracle's verdict
+  zeusApproved        boolean — Zeus must confirm before status transitions
+  zeusApprovedAt      ISO timestamp of Zeus approval
+
+GSI: status-activationTimestamp
+  — Oracle queries all ACTIVE versions on evaluation day
+  — Zeus queries all PROMOTE_READY versions on Monday briefing
+```
+
+**`agent-policies`** (existing table) — the runtime pointer
+```
+agentId + "active_version"  → "1.3.0"
+agentId + "prev_version"    → "1.2.0"  (kept for fast rollback reference)
+```
+
+Agents read `active_version` from `agent-policies` at job start.
+Oracle writes version records to `agent-version-registry`.
+Zeus approves transitions by updating `agent-policies`.
+
+---
+
+### Prompt + Policy Snapshot Storage
+
+Every version bump writes a snapshot to S3 before the new version activates:
+
+```
+s3://rrq-memory/agent-versions/{agentId}/{version}/system-prompt.txt
+s3://rrq-memory/agent-versions/{agentId}/{version}/policy-snapshot.json
+```
+
+**Rollback = two operations:**
+1. Write `active_version` → previous stable version in `agent-policies`
+2. Agent reads `system-prompt.txt` from S3 at that version on next run
+
+No Lambda redeploy. No infrastructure change. Pointer swap only.
+
+---
+
+### Version Naming
+
+Semantic versioning per agent: `tony@1.3.0`, `harvy@1.0.0`, `zeus@2.1.4`
+
+```
+MAJOR  behavior or policy changes that alter how the agent makes decisions
+MINOR  new capabilities, new strategy packages, new output fields
+PATCH  Oracle-injected guidance updates, threshold tuning, stability fixes
+```
+
+**Version bump triggers:**
+- Every Oracle guidance injection automatically creates a new PATCH version.
+  Oracle is the primary versioning engine. No manual action required.
+- Manual prompt edits require an explicit version bump by the user.
+- Policy threshold changes written by Oracle to `agent-policies` trigger a PATCH bump.
+- User-initiated policy changes (via frontend) trigger a PATCH bump with `source: USER`.
+
+---
+
+### Evaluation Flow — Oracle Decides, Zeus Acts
+
+No canary traffic splitting. New version goes fully active immediately.
+
+```
+Step 1 — Version activates
+  Oracle writes new record to agent-version-registry (status: active)
+  agent-policies active_version updated
+  All new DecisionEvents tagged with new agentVersion
+
+Step 2 — 7-day collection window
+  Oracle collects all DecisionEvents for this agent at new version
+  Outcomes filled at 24h / 7d windows per existing Domain 13 protocol
+  Oracle does NOT evaluate until minimum 7 days of data exist
+
+Step 3 — Day 7: Oracle version comparison
+  Oracle queries agent-decision-log:
+    version = new  (last 7 days)
+    version = prev stable  (prior 7-day equivalent window)
+  Computes AgentScore for each version using universal formula (Domain 13)
+  Compares: primary KPI lift, decision accuracy, reliability, cost efficiency,
+            quality regression, latency impact, policy violations, confidence calibration
+
+Step 4 — Oracle emits verdict
+  PROMOTE           new version outperforms or matches stable on primary KPI
+                    + no regression on reliability or quality
+  HOLD              inconclusive — run another 7 days, re-evaluate
+  ROLLBACK_REQUIRED hard regression detected (see rollback rules below)
+
+Step 5 — Zeus approves
+  Oracle verdict written to agent-version-registry + zeus-briefs Monday payload
+  Zeus reviews → approves or overrides
+  On approval: agent-policies active_version updated (PROMOTE) or reverted (ROLLBACK)
+  agent-version-registry status updated: stable | rolled_back
+
+Step 6 — Post-rollback lock
+  Rolled-back version cannot be re-promoted for 7 days from rollback timestamp
+  Prevents promote → rollback → promote thrashing on noisy windows
+```
+
+---
+
+### Hard Rollback Rules (Oracle triggers automatically, Zeus confirms)
+
+Oracle emits `ROLLBACK_REQUIRED` if any single condition is met:
+
+```
+1. Critical policy or safety violation detected in DecisionEvents
+2. Failure / retry / timeout rate increased > 30% vs previous stable version
+3. Primary KPI dropped below threshold for the full 7-day window
+   (not a single day dip — the weighted 7d window must be negative)
+4. Cost increased significantly while primary KPI also declined
+5. Quality regression: defect escape rate or rework rate increased > 25%
+```
+
+### Soft Rollback Rules (Zeus approval required, Oracle recommends)
+
+```
+1. Primary KPI flat but latency or cost worsened > 20%
+2. Mixed segment performance — some agent contexts improved, others degraded
+3. Confidence calibration degraded without hard violations
+```
+
+---
+
+### `agentVersion` on DecisionEvent — Mandatory
+
+`agentVersion: string` is a required field on every `DecisionEvent`.
+This is the backbone of version isolation. Without it, Oracle cannot run
+before/after comparison — the entire version evaluation system breaks.
+
+**Enforcement rules:**
+- `agentVersion` must be written on 100% of DecisionEvents — never optional
+- Agents read `active_version` from `agent-policies` at job start and pass it
+  through to every `writeDecisionEvent()` call in that run
+- DecisionEvents missing `agentVersion` are flagged as INCOMPLETE and excluded
+  from version comparison queries — they do not count toward evaluation windows
+- Domain 14 is not considered active until `agentVersion` coverage reaches 100%
+
+**What this enables:**
+- Pure A/B comparison: v1.2.0 decisions vs v1.3.0 decisions on identical context types
+- Automatic regression detection — no extra tooling needed, just query by version
+- Calibration drift visible per version over time, not just per agent
+- Historical audit: any decision traceable to the exact agent version that made it
+
+---
+
+### Oracle Self-Versioning Exception
+
+Oracle cannot evaluate its own evaluation logic changes — circular dependency.
+
+**Oracle version changes follow a different gate:**
+- New Oracle version runs in **shadow mode** for 14 days
+- Shadow mode: new version computes scores in parallel but does not write them
+- Zeus manually compares new Oracle version outputs vs current Oracle outputs
+  on the same set of past decisions (last 30 days)
+- No automated promotion — Zeus gates all Oracle version changes
+- Promotion requires Zeus explicit approval with written rationale
+- Shadow outputs stored at: `s3://rrq-memory/agent-versions/oracle/{version}/shadow-outputs/`
+
+This is the one hard exception to the standard Domain 14 evaluation flow.
+It must be documented at the call site in `lib/oracle/versioning/version-evaluator.ts`.
+
+---
+
+### Tier 1 vs Tier 2 Metric Separation
+
+**Tier 1 — Hard-coded. Never user-modifiable. Never change without a code deploy.**
+
+```typescript
+// These values are constants in score-formula.ts
+// Changing them makes all historical scores incomparable — never do this at runtime
+const SCORE_WEIGHTS = {
+  outcomeLift:       0.30,
+  decisionAccuracy:  0.20,
+  calibration:       0.15,
+  efficiency:        0.15,
+  reliability:       0.10,
+  compliance:        0.10,
+} as const;
+
+const TRUST_BANDS = {
+  HIGH_TRUST:  { min: 85, max: 100 },
+  MED_TRUST:   { min: 70, max: 84  },
+  LOW_TRUST:   { min: 50, max: 69  },
+  RESTRICTED:  { min: 0,  max: 49  },
+} as const;
+
+const ORACLE_PENALTIES = {
+  CRITICAL_BAD_RECOMMENDATION: -10,
+  THREE_LOW_IMPACT_IN_A_ROW:    -5,
+  MISSING_EVIDENCE_FIELDS:       -3,
+  DEPRECATED_GUIDANCE_LATE:      -5,
+} as const;
+```
+
+**Tier 2 — User-configurable. Stored in `agent-policies`. Source: USER or ORACLE.**
+
+```
+Promotion threshold          min_kpi_lift_pct         default: 3%
+Rollback trigger             max_failure_rate_delta   default: 30%
+Evaluation window length     eval_window_days         default: 7
+Hard rollback KPI floor      min_primary_kpi_lift     default: -5%
+Latency regression limit     max_latency_delta_pct    default: 20%
+Cost regression limit        max_cost_delta_pct       default: 15%
+Agent-specific KPI weights   {agentId}_kpi_weights    per-agent overlay
+```
+
+Oracle reads Tier 2 values from `agent-policies` at evaluation time.
+User updates via frontend → `agent-policies` write → Oracle picks up on next run.
+No redeploy needed. Every Tier 2 change tagged `source: USER` in `agent-policies`.
+
+---
+
+### Policy Control Surface — Frontend Spec
+
+The analytics page (future phase) exposes Tier 2 controls to the user.
+This is a high-sensitivity surface. The following rules govern it completely.
+
+#### What Users CAN Do
+- Adjust existing Tier 2 metric thresholds
+- Add new performance metrics (observer mode — see below)
+- Modify agent-specific KPI overlay weights
+
+#### What Users CANNOT Do
+- Delete any metric — archive only (historical scores must remain comparable)
+- Modify Tier 1 formula weights, penalty constants, or trust band thresholds
+- Bypass Oracle's mandatory impact preview before a change takes effect
+- Make any change take effect immediately — all changes go through preview first
+
+#### Mandatory Change Flow (Every Change, No Exceptions)
+
+```
+1. User proposes a change or adds a new metric
+
+2. Oracle runs impact simulation immediately
+   — Reruns last 30 days of agent-decision-log decisions with proposed change applied
+   — Computes: how many decisions would have been scored differently
+   — Computes: direction and magnitude of change per affected agent
+
+3. Oracle produces plain English impact summary
+   — No architecture revealed. No table names. No formula weights shown.
+   — Summary format:
+     "This change would have affected X decisions across Y agents in the last 30 days.
+      Agent performance scores would have [increased / decreased / been unchanged] on average.
+      The most affected agent is [agentName]: [+/- N points] on average."
+
+4. Three-level warning displayed based on impact magnitude:
+
+   ADVISORY    minor threshold adjustment, low predicted impact
+     "Lowering Tony's render success threshold from 95% to 90% means Oracle will
+      tolerate more render failures before flagging a version rollback.
+      Last 30 days: this would have affected 2 decisions."
+
+   CAUTION     adding a new metric or changing a primary KPI weight
+     "Adding a new metric shifts how Oracle scores every agent going forward.
+      Historical scores before this date will not be recalculated.
+      This affects 9 agents."
+
+   HIGH IMPACT changing evaluation window length, rollback triggers, or promotion thresholds
+     "Extending the evaluation window from 7 to 14 days means agent versions run
+      twice as long before Oracle can recommend rollback. If a bad version deploys,
+      it runs longer before being caught."
+
+5. User must explicitly confirm:
+   "I understand this affects [N] agents and [describe impact]"
+   Checkbox confirmation required — not just a button click.
+
+6. Change written to agent-policies with source: USER
+
+7. Audit log entry created in agent-policy-audit-log:
+   { userId, changeType, previousValue, newValue, oraclePrediction, confirmedAt }
+
+8. Oracle version of this guidance auto-bumped (PATCH) for affected agents
+```
+
+#### "With Power Comes Responsibility" Gate
+
+Shown on first access to the policy control page AND on every HIGH IMPACT change:
+
+```
+Before you continue
+
+The metrics on this page directly control how your AI agents
+are evaluated, promoted, and rolled back.
+
+A wrong threshold means:
+  — A poorly performing agent version stays active longer
+  — A well-performing update gets rolled back unnecessarily
+  — Your channel's growth decisions are measured against the wrong standard
+
+Oracle will always show you the predicted impact before any change takes effect.
+Deletions are not permitted — metrics can only be archived.
+Every change is logged and can be reviewed at any time.
+
+You are responsible for this channel's performance.
+The system is designed to help you — not to protect you from yourself.
+
+[ I understand — continue ]
+```
+
+This gate cannot be bypassed. `[ I understand — continue ]` is the only path forward.
+The gate re-appears on every HIGH IMPACT change regardless of prior acknowledgements.
+
+#### New Metric Observer Mode
+
+New user-defined metrics do not score agents immediately. They enter observer mode.
+
+```
+Observer mode rules:
+  — Weight: 0 (logged but not included in AgentScore calculation)
+  — Runs for minimum 14 days collecting signal against live decisions
+  — Oracle evaluates at day 14: is this metric producing meaningful, non-redundant signal?
+  — If meaningful: Oracle notifies Zeus + user that metric is ready to promote to active
+  — User confirms promotion + sets weight (guided: suggested weight from Oracle)
+  — If not meaningful: Oracle flags as LOW_SIGNAL, user advised to refine or archive
+
+Why observer mode exists:
+  A poorly defined metric promoted immediately distorts every agent's score
+  from day one. Observer mode ensures the metric proves itself before it votes.
+  This is the same proving-window logic used for new agent versions.
+```
+
+#### What Is Shown vs Hidden on the Frontend
+
+**Always shown to user:**
+- Metric name and plain English description of what it measures
+- Which agents it affects
+- Predicted impact on last 30 days (simulated, not actual production change)
+- Current value and who last changed it (USER or ORACLE) and when
+- Warning level for the proposed change
+- Observer mode status and day count for new metrics
+
+**Never shown to user:**
+- Tier 1 formula weights or penalty constants
+- Agent architecture, prompt structure, or system design
+- DynamoDB table names or S3 paths
+- Oracle's internal evaluation methodology
+- Raw DecisionEvent data or agent-decision-log contents
+- Any field with `source: HARDCODED` in agent-policies
+
+---
+
+### New DynamoDB Tables
+
+**`agent-version-registry`**
+```
+PK: agentId (String)
+SK: version (String)
+GSI: status-activationTimestamp
+  — Oracle queries ACTIVE versions on evaluation day
+  — Zeus queries PROMOTE_READY on Monday briefing
+TTL: none (version history kept permanently)
+Fields: all manifest fields listed in Version Control Model section above
+```
+
+**`agent-policy-audit-log`**
+```
+PK: changeId (String — UUID)
+SK: changedAt (String — ISO timestamp)
+GSI: agentId-changedAt — query all policy changes for a given agent
+TTL: 365 days
+Fields:
+  userId              Clerk userId of who made the change
+  agentId             which agent's policy was changed (or "global")
+  policyKey           which key in agent-policies was modified
+  previousValue       value before change
+  newValue            value after change
+  source              "USER" | "ORACLE"
+  warningLevel        "ADVISORY" | "CAUTION" | "HIGH_IMPACT"
+  oraclePrediction    plain English impact summary Oracle showed the user
+  userConfirmed       boolean — did user pass the gate
+  confirmedAt         ISO timestamp of confirmation
+```
+
+---
+
+### lib/oracle/versioning/ — Files to Create
+
+```
+lib/oracle/versioning/
+  types.ts                  AgentVersionManifest, VersionVerdict, PolicyAuditEntry,
+                            VersionComparisonResult, MetricObserverRecord interfaces
+  version-registry-db.ts   writeVersionManifest(), getActiveVersion(),
+                            updateVersionStatus(), getVersionHistory()
+  prompt-snapshot.ts        writePromptSnapshot(), readPromptSnapshot(),
+                            writePolicySnapshot(), readPolicySnapshot()
+  version-evaluator.ts      evaluateVersionPerformance(), compareVersions(),
+                            emitVersionVerdict(), isOracleVersionException()
+  policy-audit-db.ts        writePolicyAuditEntry(), getPolicyAuditHistory(),
+                            getRecentUserChanges()
+  observer-mode.ts          registerObserverMetric(), evaluateObserverSignal(),
+                            promoteObserverMetric()
+```
+
+---
+
+### Implementation Checklist
+
+[ ] Create agent-version-registry DynamoDB table (PK, SK, GSI, no TTL)
+[ ] Create agent-policy-audit-log DynamoDB table (PK, SK, GSI, 365d TTL)
+[ ] Add agent-version-registry and agent-policy-audit-log to CLAUDE.md
+[ ] Add agentVersion field to DecisionEvent interface in lib/oracle/evaluation/types.ts
+[ ] Add active_version read to agent-policies at job start for every agent
+[ ] Create lib/oracle/versioning/types.ts — all interfaces
+[ ] Create lib/oracle/versioning/version-registry-db.ts — CRUD helpers
+[ ] Create lib/oracle/versioning/prompt-snapshot.ts — S3 read/write
+[ ] Create lib/oracle/versioning/version-evaluator.ts — comparison + verdict logic
+[ ] Create lib/oracle/versioning/policy-audit-db.ts — audit log helpers
+[ ] Create lib/oracle/versioning/observer-mode.ts — new metric proving window
+[ ] Auto-bump PATCH version on every Oracle guidance injection
+[ ] Wire version verdict into zeus-briefs Monday briefing payload
+[ ] Wire post-rollback 7-day re-promotion lock
+[ ] Oracle shadow mode logic for Oracle's own version changes
+[ ] Add s3://rrq-memory/agent-versions/ path to CLAUDE.md S3 paths
+[ ] Test: new version activates → 7d window → PROMOTE verdict → Zeus approves
+[ ] Test: hard regression → ROLLBACK_REQUIRED → Zeus approves → active_version reverted
+[ ] Test: rolled-back version blocked from re-promotion for 7 days
+[ ] Test: Oracle version change → shadow mode fires, not standard evaluation
+[ ] Test: agentVersion missing on DecisionEvent → flagged INCOMPLETE, excluded from comparison
+[ ] Test: observer metric at day 14 → Oracle evaluates signal → promotes or flags LOW_SIGNAL
+[ ] Test: HIGH_IMPACT policy change → gate shown → audit log entry written
+[ ] Test: Tier 1 constant read attempt from frontend → blocked, not exposed
+[ ] Verify: agentVersion coverage 100% before Domain 14 considered active
+[ ] Verify: no version state changes in agent-policies without Zeus zeusApproved flag
+```

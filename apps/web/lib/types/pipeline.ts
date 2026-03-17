@@ -167,6 +167,12 @@ export interface ShortsScript {
   duration: number;
 }
 
+export interface TonyTask {
+  task: string;
+  context: Record<string, unknown>;
+  outputType: "data" | "chart" | "report" | "scrape";
+}
+
 export interface ScriptOutput {
   title: string;
   duration: number;
@@ -179,6 +185,8 @@ export interface ScriptOutput {
   visualAssets: VisualAsset[];
   voiceConfig: VoiceConfig;
   shortsScript?: ShortsScript;
+  /** TONY code-agent tasks — set by MUSE in Phase 9, optional until then */
+  tonyTasks?: TonyTask[];
 }
 
 // ─── SEO Output ─────────────────────────────────────────────────────────────

@@ -99,6 +99,7 @@ export async function runParallelMediaStep(
           task: scriptOutput.tonyTasks[0].task,
           context: scriptOutput.tonyTasks[0].context,
           outputType: scriptOutput.tonyTasks[0].outputType,
+          timeoutMs: 30_000,
         })
       : Promise.resolve(null),
   ]);

@@ -44,7 +44,8 @@ Phase 4+:  NOT STARTED
 ```
 Zeus, Rex, Regum, Qeon, ARIA, SNIPER, MUSE, ORACLE, THEO, JASON, VERA, THE LINE,
 TONY (Phase 3.5 — code agent, MUSE's execution arm),
-SENTINEL (Phase 4+ — infrastructure monitor, Autopilot Mode only)
+SENTINEL (Phase 4+ — infrastructure monitor, Autopilot Mode only),
+HARVY (Zeus's ROI financial intelligence engine — ad decision advisor, never executor)
 
 Universal Escalation Protocol — Zeus-owned, all agents reference
   Max attempts per gate → isStuck() detection → Zeus evaluates → SES + in-app if unresolved
@@ -140,6 +141,7 @@ posting. Facebook Ads integration spec'd for a future phase.
 | Anime series (Coming Soon spec — LoRA pipeline) | `skills/anime-series/SKILL.md` |
 | Avatar presenter roster + portrait generation | `skills/avatar-gen/SKILL.md` |
 | SENTINEL (infrastructure monitor — Autopilot Mode only) | `skills/sentinel/SKILL.md` |
+| HARVY (Zeus's ROI brain — ad EV, LTV model, BCG matrix, calibration loop) | `skills/harvy/SKILL.md` |
 | Rex Mode (Rex-assisted manual — topic surfacing + user GO trigger) | `skills/manual-rex-mode/SKILL.md` |
 | Data Harvest (Rex + ARIA) | `skills/data-harvest/SKILL.md` — includes 6 new intent-layer sources: Google Autocomplete, YouTube Suggestions, Reddit Trending, TikTok Creative Center, Google Keyword Planner, Polymarket |
 | Zeus agent | `skills/agents/zeus/SKILL.md` |
@@ -359,6 +361,31 @@ DynamoDB — Working Memory (real-time, milliseconds)
   rex-topic-queue     Rex-surfaced topics awaiting user GO — Rex Mode only (48h TTL)
   sprint-evaluations  Pre-production sprint council scores per job (Full RRQ only)
   sentinel-alerts     SENTINEL infrastructure alerts + resolution log (Autopilot Mode only)
+  harvy-roi-signals   Harvy ROI recommendations — PK: recommendationId, 90d TTL
+                      GSI 1: videoId-createdAt | GSI 2: triggeredBy-createdAt
+                      Zeus reads before every ad decision; Harvy calibration loop reads weekly
+  agent-decision-log  Agent decision audit log — PK: eventId, SK: agentId, 90d TTL
+                      GSI 1: agentId-timestamp | GSI 2: decisionType-timestamp
+                      Oracle reads at 24h/7d/30d windows to evaluate decision quality
+                      All agents write DecisionEvent before acting; outcomes filled by Oracle
+                      agentVersion field required on every record — version isolation backbone
+  agent-version-registry  Agent version manifest store — PK: agentId, SK: version, no TTL
+                      GSI: status-activationTimestamp — Oracle queries ACTIVE versions on eval day
+                      Fields: status, changeType, parentVersion, activationTimestamp, rollbackTo,
+                      sourceUpdateId, changeNotes, canaryShape, oracleVerdict, zeusApproved
+                      Oracle writes on every version bump; Zeus approves all status transitions
+                      Rollback = pointer swap in agent-policies + S3 prompt snapshot read
+  agent-policy-audit-log  User-initiated policy change audit — PK: changeId, SK: changedAt, 365d TTL
+                      GSI: agentId-changedAt — query all changes for a given agent
+                      Every Tier 2 policy change written here with Oracle impact prediction,
+                      warning level, user confirmation, and before/after values
+  agent-policies      Centralized policy store — PK: agentId, SK: policyKey
+                      Fields: value, valueType, description, category, source, updatedAt, updatedBy
+                      GSI: category-agentId — query all policies of a type across agents
+                      Source values: HARDCODED | ORACLE | USER
+                      Oracle injects new/updated policies here; agents read at runtime
+                      All hardcoded thresholds (Harvy gates, Zeus guards, Rex scoring) live here
+                      Analytics UI reads this table to display live agent policy state
 
 Note: user identity, email, and plan tier stored on Clerk publicMetadata.
 All DynamoDB user tables use Clerk userId as partition key.
@@ -719,6 +746,9 @@ content-factory-assets/
 
 rrq-memory/
   episodes/{agent}/{year}/{month}/{episodeId}.json
+  agent-versions/{agentId}/{version}/system-prompt.txt
+  agent-versions/{agentId}/{version}/policy-snapshot.json
+  agent-versions/oracle/{version}/shadow-outputs/   (Oracle shadow mode — 14d proving window)
 ```
 
 **Frontend:**

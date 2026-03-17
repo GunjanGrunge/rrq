@@ -24,33 +24,36 @@ export async function fetchPageAsMarkdown(url: string): Promise<string> {
 
   if (!response.ok) throw new Error(`Cloudflare fetch failed: ${response.status}`);
   const data = await response.json();
-  return (data as { result?: { markdown?: string } }).result?.markdown ?? "";
+  // API returns { success: true, result: string } for /markdown
+  const result = (data as { result?: string }).result;
+  return typeof result === "string" ? result : "";
 }
 
 // ─── Single Page: extract structured JSON ───────────────────────────────────
+// Cloudflare Browser Rendering does not have a native JSON extraction endpoint.
+// Fetch as markdown and let the caller parse the structured content.
 
 export async function fetchPageAsJSON<T>(
   url: string,
-  prompt: string,
-  schema: object
+  _prompt: string,
+  _schema: object
 ): Promise<T | null> {
-  const response = await fetch(`${CF_BASE()}/json`, {
-    method: "POST",
-    headers: CF_HEADERS(),
-    body: JSON.stringify({
-      url,
-      prompt,
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "extract", properties: schema },
-      },
-      rejectResourceTypes: ["image", "media", "font", "stylesheet"],
-    }),
-  });
-
-  if (!response.ok) return null;
-  const data = await response.json();
-  return ((data as { result?: { data?: T } }).result?.data as T) ?? null;
+  try {
+    const markdown = await fetchPageAsMarkdown(url);
+    if (!markdown) return null;
+    // Extract JSON blocks from markdown if present
+    const jsonMatch = markdown.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[1]) as T;
+      } catch {
+        // not valid JSON in code block — fall through
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Multi-page crawl: async job with polling ───────────────────────────────
@@ -87,12 +90,10 @@ export async function startCrawl(
       render: options.render ?? true,
       rejectResourceTypes:
         options.rejectResourceTypes ?? ["image", "media", "font", "stylesheet"],
-      ...(options.includePatterns && {
-        options: { includePatterns: options.includePatterns },
-      }),
-      ...(options.excludePatterns && {
-        options: { excludePatterns: options.excludePatterns },
-      }),
+      options: {
+        ...(options.includePatterns && { includePatterns: options.includePatterns }),
+        ...(options.excludePatterns && { excludePatterns: options.excludePatterns }),
+      },
     }),
   });
 

@@ -234,6 +234,12 @@ export default function LandingPage() {
                   Studio
                 </Link>
                 <Link
+                  href="/analytics"
+                  className="font-dm-mono text-xs text-text-secondary hover:text-text-primary transition-colors tracking-widest uppercase"
+                >
+                  Analytics
+                </Link>
+                <Link
                   href="/zeus"
                   className="font-dm-mono text-xs text-text-inverse bg-accent-primary hover:bg-accent-primary-hover px-5 py-2 tracking-widest uppercase transition-colors"
                 >

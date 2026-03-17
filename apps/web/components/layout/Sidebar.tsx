@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useUIStore } from "@/lib/ui-store";
-import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2, Home } from "lucide-react";
+import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2, Home, BarChart3 } from "lucide-react";
 import StatusPill from "@/components/ui/StatusPill";
 import type { GateId, GateStatus, SessionState } from "@/lib/pipeline-store";
 
@@ -248,19 +248,40 @@ export default function Sidebar() {
         </Link>
       </div>
 
+      {/* Analytics link */}
+      <div className="px-3 py-2 border-b border-bg-border">
+        <Link
+          href="/analytics"
+          className={`
+            flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-all duration-200
+            ${pathname.startsWith("/analytics")
+              ? "bg-accent-primary text-text-inverse"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
+            }
+          `}
+        >
+          <div className="flex items-center gap-2">
+            <BarChart3 size={14} />
+            <span className="font-syne font-bold text-xs tracking-wider uppercase">
+              Analytics
+            </span>
+          </div>
+        </Link>
+      </div>
+
       {/* Sessions */}
       <div className="border-b border-bg-border">
-        <div className="px-4 py-2 flex items-center justify-between">
+        <div className="px-3 py-2 flex items-center justify-between gap-2">
           <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
             Clips
           </span>
           <button
             onClick={handleNewClip}
-            className="flex items-center gap-1 text-text-tertiary hover:text-accent-primary transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-accent-primary/10 border border-accent-primary/40 text-accent-primary hover:bg-accent-primary hover:text-text-inverse transition-all duration-150 shrink-0"
             title="New clip"
           >
-            <Plus size={12} />
-            <span className="font-dm-mono text-[10px] tracking-wider">New</span>
+            <Plus size={11} strokeWidth={2.5} />
+            <span className="font-dm-mono text-[10px] tracking-widest uppercase font-bold">New</span>
           </button>
         </div>
 

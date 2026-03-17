@@ -8,6 +8,7 @@ import {
 } from "@/lib/notifications/notification-store";
 import { STEP_SLUGS, STEPS } from "@/lib/pipeline-steps";
 import StatusPill from "@/components/ui/StatusPill";
+import RRQSignature from "@/components/ui/RRQSignature";
 
 // Per-step agent status lines
 const STEP_AGENT_LINES: Record<number, string> = {
@@ -73,17 +74,30 @@ export default function HomePage() {
         </div>
 
         {/* Nav cards row */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           {/* GO RRQ */}
           <Link
             href="/zeus"
             className="border border-bg-border bg-bg-surface rounded-xl p-5 hover:border-accent-primary/30 transition-colors group"
           >
-            <p className="font-dm-mono text-[10px] text-text-tertiary uppercase tracking-widest mb-2">
+            <p className="font-dm-mono text-[10px] text-text-secondary uppercase tracking-widest mb-2">
               GO RRQ
             </p>
             <p className="font-syne font-bold text-sm text-text-primary group-hover:text-accent-primary transition-colors">
               Autopilot mode
+            </p>
+          </Link>
+
+          {/* Analytics */}
+          <Link
+            href="/analytics"
+            className="border border-bg-border bg-bg-surface rounded-xl p-5 hover:border-accent-primary/30 transition-colors group"
+          >
+            <p className="font-dm-mono text-[10px] text-text-secondary uppercase tracking-widest mb-2">
+              Analytics
+            </p>
+            <p className="font-syne font-bold text-sm text-text-primary group-hover:text-accent-primary transition-colors">
+              Channel &amp; agents
             </p>
           </Link>
 
@@ -97,7 +111,7 @@ export default function HomePage() {
                 {unreadCount}
               </span>
             )}
-            <p className="font-dm-mono text-[10px] text-text-tertiary uppercase tracking-widest mb-2">
+            <p className="font-dm-mono text-[10px] text-text-secondary uppercase tracking-widest mb-2">
               Inbox
             </p>
             <p className="font-syne font-bold text-sm text-text-primary group-hover:text-accent-primary transition-colors">
@@ -110,7 +124,7 @@ export default function HomePage() {
             href="/settings"
             className="border border-bg-border bg-bg-surface rounded-xl p-5 hover:border-accent-primary/30 transition-colors group"
           >
-            <p className="font-dm-mono text-[10px] text-text-tertiary uppercase tracking-widest mb-2">
+            <p className="font-dm-mono text-[10px] text-text-secondary uppercase tracking-widest mb-2">
               Settings
             </p>
             <p className="font-syne font-bold text-sm text-text-primary group-hover:text-accent-primary transition-colors">
@@ -118,6 +132,9 @@ export default function HomePage() {
             </p>
           </Link>
         </div>
+
+        {/* RRQ signature — draw-on animation, always visible */}
+        <RRQSignature />
 
         {/* Active Jobs — only shown when at least one session is running */}
         {activeSessions.length > 0 && (
