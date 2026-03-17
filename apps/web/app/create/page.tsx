@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import type { RexScoreData } from "@/lib/pipeline-store";
-import { ArrowRight, ChevronDown, Send, Loader2, Lock } from "lucide-react";
+import { ArrowRight, Send, Loader2, Lock } from "lucide-react";
 
 const TONES = [
   { value: "informative", label: "Informative", desc: "Clear, factual, educational" },
@@ -60,7 +60,7 @@ export default function CreatePage() {
   const [nicheLocked, setNicheLocked] = useState(false);
   const [generateShorts, setGenerateShorts] = useState(false);
   const [shortsType, setShortsType] = useState<"convert" | "fresh">("convert");
-  const [qualityThreshold] = useState(7);
+  const [qualityThreshold, setQualityThreshold] = useState(7);
   const [directorMode, setDirectorMode] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"ai" | "self">("ai");
   const [isStarting, setIsStarting] = useState(false);
@@ -855,16 +855,56 @@ export default function CreatePage() {
         </div>
 
         {/* Quality threshold */}
-        <div className="mb-10 flex items-center justify-between px-1">
-          <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase">
-            Min quality score
-          </span>
-          <div className="flex items-center gap-1">
-            <span className="font-dm-mono text-sm text-text-primary">
+        <div className="mb-10 bg-bg-surface border border-bg-border p-6">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-dm-mono text-xs text-accent-primary tracking-widest uppercase">
+              Min Quality Score
+            </span>
+            <span className={`font-dm-mono text-sm font-bold ${
+              qualityThreshold <= 5
+                ? "text-accent-error"
+                : qualityThreshold >= 9
+                ? "text-accent-primary"
+                : "text-accent-success"
+            }`}>
               {qualityThreshold}/10
             </span>
-            <ChevronDown size={12} className="text-text-tertiary" />
           </div>
+          <p className="font-dm-mono text-[10px] text-text-secondary mb-4 leading-relaxed">
+            Every script is scored before production begins. Set this too low and weak content gets through — costing you a full production run on a video that won&apos;t perform. Set it too high and the pipeline may never produce a passing script, forcing repeated rewrites that burn credits either way.
+          </p>
+          <input
+            type="range"
+            min={4}
+            max={10}
+            value={qualityThreshold}
+            onChange={(e) => setQualityThreshold(Number(e.target.value))}
+            className="w-full h-1 bg-bg-elevated rounded-full appearance-none cursor-pointer accent-accent-primary mb-3"
+          />
+          <div className="flex justify-between mb-4">
+            <span className="font-dm-mono text-[10px] text-text-tertiary">4 — Lenient</span>
+            <span className="font-dm-mono text-[10px] text-accent-primary">7 — Recommended</span>
+            <span className="font-dm-mono text-[10px] text-text-tertiary">10 — Strict</span>
+          </div>
+          {qualityThreshold <= 5 && (
+            <p className="font-dm-mono text-[10px] text-accent-error leading-relaxed">
+              Low bar — weak scripts may pass and cost you GPU time and ElevenLabs credits on content that won&apos;t perform.
+            </p>
+          )}
+          {qualityThreshold >= 9 && (
+            <p className="font-dm-mono text-[10px] text-accent-primary leading-relaxed">
+              Very strict — the pipeline may loop on rewrites frequently. Use only for premium, long-form content.
+            </p>
+          )}
+          {qualityThreshold >= 6 && qualityThreshold <= 8 && (
+            <p className="font-dm-mono text-[10px] text-text-tertiary leading-relaxed">
+              {qualityThreshold === 7
+                ? "Default — balances quality and throughput. Recommended for most channels."
+                : qualityThreshold === 8
+                ? "High bar — good for established channels where quality is the priority."
+                : "Slightly lenient — suitable for high-volume or experimental content."}
+            </p>
+          )}
         </div>
 
         {/* CTA */}
