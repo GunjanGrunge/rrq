@@ -37,6 +37,26 @@ export {
   type UploaderInputType,
   type UploaderOutputType,
 
+  // SkyReels EC2 (Avatar / Talking Head)
+  SkyReelsBeat,
+  SkyReelsInput,
+  SkyReelsOutput,
+  SkyReelsSegment,
+  type SkyReelsBeatType,
+  type SkyReelsInputType,
+  type SkyReelsOutputType,
+  type SkyReelsSegmentType,
+
+  // Wan2.2 B-Roll
+  Wan2Beat,
+  Wan2Input,
+  Wan2Output,
+  Wan2Segment,
+  type Wan2BeatType,
+  type Wan2InputType,
+  type Wan2OutputType,
+  type Wan2SegmentType,
+
   // Code Agent (TONY)
   CodeAgentInput,
   CodeAgentOutput,

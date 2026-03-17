@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "lambdas/*"
+    "lambdas/*",
+    "infrastructure"
   ],
   "scripts": {
     "dev": "npm run --workspace=apps/web dev",
@@ -16,7 +17,8 @@
     "audit": "npm audit --audit-level=moderate",
     "audit:critical": "npm audit --audit-level=critical",
     "audit:fix": "npm audit fix --dry-run",
-    "lint:lambdas": "eslint --config .eslintrc.lambdas.js lambdas/"
+    "lint:lambdas": "eslint --config .eslintrc.lambdas.js lambdas/",
+    "infra:phase5": "npx tsx infrastructure/setup.ts"
   },
   "devDependencies": {
     "eslint-plugin-security": "^3.0.1"

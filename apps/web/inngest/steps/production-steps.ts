@@ -11,14 +11,18 @@ import type {
   ResearchVisualOutputType,
   AvSyncOutputType,
   CodeAgentOutputType,
+  SkyReelsOutputType,
+  Wan2OutputType,
 } from "@rrq/lambda-types";
 import type { ScriptOutput } from "@/lib/types/pipeline";
+import { runSkyReelsInstance } from "@/lib/video-pipeline/skyreels";
+import { runWan2Instance } from "@/lib/video-pipeline/wan2";
 import { buildSegments } from "./helpers/segment-builder";
 import { buildSRT } from "./helpers/srt-builder";
 
 export interface MediaResults {
-  avatar: { status: "stub"; message: string; segments: string[] } | { status: "error"; error: string };
-  broll: { status: "stub"; message: string; segments: string[] } | { status: "error"; error: string };
+  avatar: SkyReelsOutputType | { status: "error"; error: string };
+  broll: Wan2OutputType;
   images: { status: "stub"; message: string; images: string[] } | { status: "error"; error: string };
   visuals: VisualGenOutputType;
   researchVisuals: ResearchVisualOutputType;
@@ -45,22 +49,78 @@ export async function runAudioStep(
 export async function runParallelMediaStep(
   jobId: string,
   topic: string,
-  scriptOutput: ScriptOutput
+  scriptOutput: ScriptOutput,
+  audioOutput: AudioGenOutputType,
+  avatarId: string
 ): Promise<MediaResults> {
-  const results = await Promise.allSettled([
-    // Step 6: Avatar — SkyReels EC2 (Phase 4a stub)
-    Promise.resolve({
-      status: "stub" as const,
-      message: "Avatar generation requires Phase 4a SkyReels EC2",
-      segments: [] as string[],
-    }),
+  // Build SkyReels input: one beat per section that uses avatar
+  const avatarBeats = scriptOutput.sections
+    .filter(
+      (s) =>
+        s.displayMode === "avatar-fullscreen" ||
+        s.displayMode === "broll-with-corner-avatar"
+    )
+    .map((s) => {
+      const audioSection = audioOutput.sectionAudioUrls.find(
+        (a) => a.sectionId === s.id
+      );
+      return {
+        sectionId: s.id,
+        audioS3Key: audioSection?.s3Key ?? audioOutput.voiceoverUrl,
+        durationMs: audioSection?.durationMs ?? 5000,
+        displayMode: s.displayMode as "avatar-fullscreen" | "broll-with-corner-avatar",
+        cueMap: [] as { timestamp: number; cue: string }[],
+      };
+    });
 
-    // Step 7: B-Roll — Wan2.2 EC2 (Phase 4b stub)
-    Promise.resolve({
-      status: "stub" as const,
-      message: "B-Roll generation requires Phase 4b Wan2.2 EC2",
-      segments: [] as string[],
-    }),
+  // Build Wan2 input: one beat per section routed to b-roll
+  const brollBeats = scriptOutput.sections
+    .filter(
+      (s) => s.displayMode === "broll-only" || s.displayMode === "broll-with-corner-avatar"
+    )
+    .map((s) => {
+      const audioSection = audioOutput.sectionAudioUrls.find(
+        (a) => a.sectionId === s.id
+      );
+      return {
+        sectionId: s.id,
+        prompt: s.visualNote ?? `${topic} atmospheric cinematic b-roll`,
+        durationMs: audioSection?.durationMs ?? 5000,
+        visualNote: s.visualNote,
+        topicContext: topic,
+      };
+    });
+
+  const results = await Promise.allSettled([
+    // Step 6: Avatar — SkyReels V2 EC2 (Phase 4a)
+    avatarBeats.length > 0
+      ? runSkyReelsInstance(jobId, {
+          jobId,
+          avatarId,
+          voiceoverS3Key: audioOutput.voiceoverUrl,
+          beats: avatarBeats,
+          resolution: "720p",
+        })
+      : Promise.resolve({
+          segments: [],
+          totalDurationMs: 0,
+          instanceId: "skipped",
+          renderTimeMs: 0,
+        } satisfies SkyReelsOutputType),
+
+    // Step 7: B-Roll — Wan2.2 EC2 (Phase 4b — non-critical, falls back to stock on failure)
+    brollBeats.length > 0
+      ? runWan2Instance(jobId, {
+          jobId,
+          beats: brollBeats,
+          resolution: "720p",
+        })
+      : Promise.resolve({
+          segments: [],
+          totalDurationMs: 0,
+          instanceId: "skipped",
+          renderTimeMs: 0,
+        } satisfies Wan2OutputType),
 
     // Step 8: Images — FLUX EC2 (Phase 4c stub)
     Promise.resolve({
@@ -106,11 +166,12 @@ export async function runParallelMediaStep(
 
   return {
     avatar: results[0].status === "fulfilled"
-      ? results[0].value
+      ? (results[0].value as SkyReelsOutputType)
       : { status: "error" as const, error: String((results[0] as PromiseRejectedResult).reason) },
+    // Wan2 never rejects (returns failed:true on error) — always fulfilled
     broll: results[1].status === "fulfilled"
-      ? results[1].value
-      : { status: "error" as const, error: String((results[1] as PromiseRejectedResult).reason) },
+      ? (results[1].value as Wan2OutputType)
+      : { segments: [], totalDurationMs: 0, instanceId: "unknown", renderTimeMs: 0, failed: true } satisfies Wan2OutputType,
     images: results[2].status === "fulfilled"
       ? results[2].value
       : { status: "error" as const, error: String((results[2] as PromiseRejectedResult).reason) },
@@ -129,9 +190,14 @@ export async function runParallelMediaStep(
 export async function runAvSyncStep(
   jobId: string,
   scriptOutput: ScriptOutput,
-  audioOutput: AudioGenOutputType
+  audioOutput: AudioGenOutputType,
+  mediaResults: MediaResults
 ): Promise<AvSyncOutputType> {
-  const segments = buildSegments(scriptOutput.sections, audioOutput);
+  const skyreelsSegments =
+    "segments" in mediaResults.avatar ? mediaResults.avatar.segments : [];
+  const wan2Segments = mediaResults.broll.segments ?? [];
+
+  const segments = buildSegments(scriptOutput.sections, audioOutput, skyreelsSegments, wan2Segments);
   const srtContent = buildSRT(scriptOutput.sections, audioOutput);
 
   return invokeAvSync({

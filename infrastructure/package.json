@@ -1,0 +1,24 @@
+{
+  "name": "@rrq/infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RRQ Phase 5 infrastructure provisioning — DynamoDB, S3, Bedrock KB, EventBridge",
+  "type": "module",
+  "scripts": {
+    "phase5": "tsx setup.ts",
+    "phase5:dry-run": "DRY_RUN=true tsx setup.ts",
+    "tables:create": "tsx dynamodb/create-tables.ts",
+    "tables:seed": "tsx dynamodb/seed.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agent": "^3.0.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-eventbridge": "^3.0.0",
+    "@aws-sdk/util-dynamodb": "^3.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

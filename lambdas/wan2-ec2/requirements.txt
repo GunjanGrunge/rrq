@@ -1,0 +1,25 @@
+# Wan2.2 B-Roll EC2 inference dependencies
+# Install on AMI base: Ubuntu 22.04 + CUDA 12.1 + Python 3.10
+
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+diffusers==0.30.3
+transformers==4.44.2
+accelerate==0.34.2
+safetensors==0.4.5
+huggingface-hub==0.24.6
+
+# Image/video processing
+Pillow==10.4.0
+imageio==2.35.1
+imageio-ffmpeg==0.5.1
+opencv-python-headless==4.10.0.84
+
+# AWS SDK (for DynamoDB status writes inside inference script)
+boto3==1.35.0
+
+# Misc
+numpy==1.26.4
+tqdm==4.66.5

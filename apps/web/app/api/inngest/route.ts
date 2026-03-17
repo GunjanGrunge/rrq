@@ -1,8 +1,8 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/lib/inngest";
-import { createVideoWorkflow } from "@/inngest/create-video-workflow";
+import * as workflows from "@/inngest";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [createVideoWorkflow],
+  functions: Object.values(workflows),
 });

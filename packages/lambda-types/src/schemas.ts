@@ -307,6 +307,97 @@ export const UploaderOutput = z.object({
 
 export type UploaderOutputType = z.infer<typeof UploaderOutput>;
 
+// ─── SkyReels EC2 — Avatar / Talking Head ──────────────────────────────────
+
+export const SkyReelsBeat = z.object({
+  /** Section id from the script */
+  sectionId: z.string(),
+  /** S3 key of the pre-cut audio segment for this section */
+  audioS3Key: z.string(),
+  /** Duration of this segment in milliseconds */
+  durationMs: z.number(),
+  /** Voice cue map for this beat — drives SkyReels expression hints */
+  cueMap: z.array(VoiceCueMap),
+  /** Display mode — determines layout in av-sync stitch */
+  displayMode: z.enum([
+    "avatar-fullscreen",
+    "broll-with-corner-avatar",
+  ]),
+});
+
+export type SkyReelsBeatType = z.infer<typeof SkyReelsBeat>;
+
+export const SkyReelsInput = z.object({
+  jobId: z.string(),
+  /** ID of the avatar to use — maps to s3://content-factory-assets/avatars/{avatarId}/ */
+  avatarId: z.string(),
+  /** S3 key of the full merged voiceover MP3 */
+  voiceoverS3Key: z.string(),
+  beats: z.array(SkyReelsBeat),
+  resolution: z.enum(["720p", "1080p"]).default("720p"),
+});
+
+export type SkyReelsInputType = z.infer<typeof SkyReelsInput>;
+
+export const SkyReelsSegment = z.object({
+  sectionId: z.string(),
+  s3Key: z.string(),
+  durationMs: z.number(),
+  /** Resolution actually rendered */
+  resolution: z.string(),
+});
+
+export type SkyReelsSegmentType = z.infer<typeof SkyReelsSegment>;
+
+export const SkyReelsOutput = z.object({
+  segments: z.array(SkyReelsSegment),
+  totalDurationMs: z.number(),
+  instanceId: z.string(),
+  renderTimeMs: z.number(),
+});
+
+export type SkyReelsOutputType = z.infer<typeof SkyReelsOutput>;
+
+// ─── Wan2.2 B-Roll ─────────────────────────────────────────────────────────
+
+export const Wan2Beat = z.object({
+  sectionId: z.string(),
+  prompt: z.string(),
+  durationMs: z.number(),
+  visualNote: z.string().optional(),
+  topicContext: z.string().optional(),
+});
+
+export type Wan2BeatType = z.infer<typeof Wan2Beat>;
+
+export const Wan2Input = z.object({
+  jobId: z.string(),
+  beats: z.array(Wan2Beat),
+  resolution: z.enum(["720p", "1080p"]).default("720p"),
+});
+
+export type Wan2InputType = z.infer<typeof Wan2Input>;
+
+export const Wan2Segment = z.object({
+  sectionId: z.string(),
+  s3Key: z.string(),
+  durationMs: z.number(),
+  resolution: z.string(),
+  renderTimeMs: z.number().optional(),
+});
+
+export type Wan2SegmentType = z.infer<typeof Wan2Segment>;
+
+export const Wan2Output = z.object({
+  segments: z.array(Wan2Segment),
+  totalDurationMs: z.number(),
+  instanceId: z.string(),
+  renderTimeMs: z.number(),
+  failed: z.boolean().optional(),
+});
+
+export type Wan2OutputType = z.infer<typeof Wan2Output>;
+
 // ─── TONY — Code Agent ─────────────────────────────────────────────────────
 
 export const CodeAgentInput = z.object({

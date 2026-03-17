@@ -1,0 +1,22 @@
+# FLUX.1 [dev] Portrait Generation EC2 inference dependencies
+# Install on AMI base: Ubuntu 22.04 + CUDA 12.1 + Python 3.10
+# Instance: g4dn.xlarge (1x T4 16GB VRAM)
+
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+diffusers==0.30.3
+transformers==4.44.2
+accelerate==0.34.2
+safetensors==0.4.5
+huggingface-hub==0.24.6
+
+# Image processing
+Pillow==10.4.0
+
+# AWS SDK (for S3 uploads and DynamoDB status writes)
+boto3==1.35.0
+
+# Misc
+numpy==1.26.4

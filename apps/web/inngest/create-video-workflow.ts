@@ -14,7 +14,7 @@ import { runVeraQAStep, runShortsStep, runUploadStep } from "./steps/distributio
  *
  * Steps 1–4: Bedrock LLM routes (research, script, SEO, quality gate)
  * Step 5: audio-gen Lambda (ElevenLabs + Edge-TTS fallback)
- * Steps 6+7+8: EC2 GPU workers — Phase 4 stubs (SkyReels, Wan2.2, FLUX)
+ * Steps 6+7+8: EC2 GPU workers — Step 6 SkyReels (Phase 4a LIVE), Step 7 Wan2.2 stub, Step 8 FLUX stub
  * Step 9: visual-gen Lambda (Puppeteer + Chart.js + Mermaid)
  *         + research-visual Lambda (paper figures, screenshots, stock)
  * Step 10: av-sync Lambda (FFmpeg stitch all segments + subtitles)
@@ -30,7 +30,7 @@ export const createVideoWorkflow = inngest.createFunction(
   },
   { event: "pipeline/job.started" },
   async ({ event, step }) => {
-    const { jobId, userId, topic } = event.data;
+    const { jobId, userId, topic, avatarId = "avatar_1" } = event.data;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
     // ── Step 1: Research ──────────────────────────────────────────────
@@ -60,12 +60,12 @@ export const createVideoWorkflow = inngest.createFunction(
 
     // ── Steps 6+7+8+9: Media Generation (parallel) ───────────────────
     const mediaResults = await step.run("step-6-7-8-9-parallel-media", () =>
-      runParallelMediaStep(jobId, topic, scriptOutput)
+      runParallelMediaStep(jobId, topic, scriptOutput, audioOutput, avatarId)
     );
 
     // ── Step 10: AV Sync ──────────────────────────────────────────────
     const avSyncOutput: AvSyncOutputType = await step.run("step-10-av-sync", () =>
-      runAvSyncStep(jobId, scriptOutput, audioOutput)
+      runAvSyncStep(jobId, scriptOutput, audioOutput, mediaResults)
     );
 
     // ── Step 11: Vera QA (Phase 12 stub) ──────────────────────────────
