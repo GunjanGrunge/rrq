@@ -72,7 +72,7 @@ echo "[flux-portrait] Starting job $JOB_ID for channel $CHANNEL_ID"
 
 # ── Pull model weights + inference script from S3 ──────────────────────────
 echo "[flux-portrait] Downloading model weights..."
-aws s3 cp s3://$S3_BUCKET/models/flux-dev-fp8/ /tmp/flux-dev-fp8/ --recursive --quiet
+aws s3 cp s3://$S3_BUCKET/models/flux-krea-dev/ /tmp/flux-krea-dev/ --recursive --quiet
 
 # ── Write presenters manifest ──────────────────────────────────────────────
 cat > /tmp/presenters.json << 'PRESENTERS_EOF'
@@ -84,10 +84,10 @@ mkdir -p /tmp/output
 # ── Run FLUX inference ─────────────────────────────────────────────────────
 echo "[flux-portrait] Running portrait generation..."
 source /opt/flux-env/bin/activate
-python3 /tmp/flux-dev-fp8/generate_portraits.py \\
+python3 /tmp/flux-krea-dev/generate_portraits.py \\
   --presenters_json /tmp/presenters.json \\
   --output_dir /tmp/output/ \\
-  --model_dir /tmp/flux-dev-fp8/ \\
+  --model_dir /tmp/flux-krea-dev/ \\
   --channel_id $CHANNEL_ID \\
   --job_id $JOB_ID
 

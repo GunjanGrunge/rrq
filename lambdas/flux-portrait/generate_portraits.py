@@ -1,12 +1,13 @@
 """
-FLUX.1 [dev] Portrait Generation Script
+FLUX.1 Krea Dev Portrait Generation Script
 Runs on EC2 g4dn.xlarge — generates seed-locked presenter portraits.
+Model: black-forest-labs/FLUX.1-Krea-dev (HuggingFace)
 
 Usage:
   python generate_portraits.py
     --presenters_json  /tmp/presenters.json
     --output_dir       /tmp/output/
-    --model_dir        /tmp/flux-dev-fp8/
+    --model_dir        /tmp/flux-krea-dev/
     --channel_id       channel_abc123
     --job_id           abc123
 
@@ -46,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="FLUX.1 [dev] Portrait Generation")
     parser.add_argument("--presenters_json", required=True, help="Path to presenters JSON file")
     parser.add_argument("--output_dir", required=True, help="Output directory for portraits")
-    parser.add_argument("--model_dir", required=True, help="Local path to FLUX.1 [dev] FP8 model directory")
+    parser.add_argument("--model_dir", required=True, help="Local path to FLUX.1 Krea Dev model directory")
     parser.add_argument("--channel_id", required=True, help="Channel ID for S3 key construction")
     parser.add_argument("--job_id", required=True, help="Portrait batch job ID for logging")
     return parser.parse_args()
@@ -108,19 +109,17 @@ def main() -> None:
     print(f"[flux-portrait][{job_id}] {len(presenters)} portraits to generate")
 
     # ── Load pipeline ────────────────────────────────────────────────────────
-    print(f"[flux-portrait][{job_id}] Loading FLUX.1 [dev] pipeline from {args.model_dir}")
+    print(f"[flux-portrait][{job_id}] Loading FLUX.1 Krea Dev pipeline from {args.model_dir}")
     pipe = FluxPipeline.from_pretrained(
         args.model_dir,
         torch_dtype=torch.bfloat16,
         local_files_only=True,
     )
-    # g4dn.xlarge has 16GB VRAM — FLUX FP8 needs ~12GB.
+    # g4dn.xlarge has 16GB VRAM — FLUX.1 Krea Dev needs ~16GB.
     # enable_model_cpu_offload() moves layers to CPU when not in use.
-    # enable_sequential_cpu_offload() is more aggressive — layers loaded one at a time.
-    # Use sequential for safety on T4 16GB.
+    # Use standard offload (not sequential) — Krea Dev performs better with it.
     pipe.enable_model_cpu_offload()
-    pipe.enable_sequential_cpu_offload()
-    print(f"[flux-portrait][{job_id}] Pipeline loaded with sequential CPU offload")
+    print(f"[flux-portrait][{job_id}] Pipeline loaded with model CPU offload")
 
     # ── Render loop ──────────────────────────────────────────────────────────
     portrait_records = []

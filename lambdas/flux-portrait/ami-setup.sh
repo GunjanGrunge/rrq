@@ -1,6 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# FLUX.1 [dev] Portrait Generator — EC2 g4dn.xlarge AMI Bake Script
+# FLUX.1 Krea Dev Portrait Generator — EC2 g4dn.xlarge AMI Bake Script
 #
 # Run this once on a fresh g4dn.xlarge Ubuntu 22.04 instance to create the AMI
 # used by the avatar-gen Lambda to launch portrait generation jobs.
@@ -81,7 +81,7 @@ from diffusers import FluxPipeline
 import torch
 print('diffusers FluxPipeline: OK')
 print('VRAM:', round(torch.cuda.get_device_properties(0).total_memory / 1e9, 2), 'GB')
-print('FLUX.1 [dev] FP8 requires ~12GB VRAM — T4 16GB: OK')
+print('FLUX.1 Krea Dev requires ~16GB VRAM — T4 16GB: OK')
 "
 
 echo "============================================================"
@@ -92,15 +92,16 @@ echo "Next steps:"
 echo "  1. Create AMI from this instance in the AWS Console or via:"
 echo "     aws ec2 create-image --instance-id <INSTANCE_ID> \\"
 echo "       --name 'rrq-flux-portrait-v1' \\"
-echo "       --description 'FLUX.1 [dev] FP8 portrait generation — g4dn.xlarge'"
+echo "       --description 'FLUX.1 Krea Dev portrait generation — g4dn.xlarge'"
 echo ""
 echo "  2. Set EC2_FLUX_PORTRAIT_AMI_ID=<new-ami-id> in your environment"
 echo ""
-echo "  3. Upload FLUX.1 [dev] FP8 model weights to S3:"
-echo "     Model S3 path: s3://content-factory-assets/models/flux-dev-fp8/"
+echo "  3. Upload FLUX.1 Krea Dev model weights to S3:"
+echo "     HuggingFace: black-forest-labs/FLUX.1-Krea-dev"
+echo "     Model S3 path: s3://content-factory-assets/models/flux-krea-dev/"
 echo ""
 echo "  4. The UserData bootstrap script in flux-runner.ts will:"
-echo "     - Pull model weights from that S3 path to /tmp/flux-dev-fp8/"
+echo "     - Pull model weights from that S3 path to /tmp/flux-krea-dev/"
 echo "     - Copy generate_portraits.py from the model S3 path"
 echo "     - Run inference and upload results"
 echo "     - Signal DynamoDB and self-terminate"
