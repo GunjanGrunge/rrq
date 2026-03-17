@@ -142,6 +142,7 @@ posting. Facebook Ads integration spec'd for a future phase.
 | Avatar presenter roster + portrait generation | `skills/avatar-gen/SKILL.md` |
 | SENTINEL (infrastructure monitor — Autopilot Mode only) | `skills/sentinel/SKILL.md` |
 | HARVY (Zeus's ROI brain — ad EV, LTV model, BCG matrix, calibration loop) | `skills/harvy/SKILL.md` |
+| Unreal AD (virtual studio, simulation shots, HUD overlays, 3D asset pipeline) | `skills/unreal-ad/SKILL.md` |
 | Rex Mode (Rex-assisted manual — topic surfacing + user GO trigger) | `skills/manual-rex-mode/SKILL.md` |
 | Data Harvest (Rex + ARIA) | `skills/data-harvest/SKILL.md` — includes 6 new intent-layer sources: Google Autocomplete, YouTube Suggestions, Reddit Trending, TikTok Creative Center, Google Keyword Planner, Polymarket |
 | Zeus agent | `skills/agents/zeus/SKILL.md` |
@@ -379,6 +380,15 @@ DynamoDB — Working Memory (real-time, milliseconds)
                       GSI: agentId-changedAt — query all changes for a given agent
                       Every Tier 2 policy change written here with Oracle impact prediction,
                       warning level, user confirmation, and before/after values
+  unreal-render-jobs  Unreal AD render job state — PK: jobId, SK: beatId
+                      GSI: status-createdAt — Inngest polls for RENDER_COMPLETE
+  unreal-asset-catalog  Unreal 3D asset library — PK: assetId
+                      GSI 1: source-createdAt | GSI 2: contentDomain-usageCount
+                      semantic tags + Titan v2 embedding per asset
+                      Oracle Domain 12 manages — classifies contentDomains on add
+  unreal-asset-requests  TripoSR generation queue — PK: requestId
+                      GSI: status-createdAt — Oracle tracks pending gap fills
+                      Written when Muse approves GENERATE for a scene gap
   agent-policies      Centralized policy store — PK: agentId, SK: policyKey
                       Fields: value, valueType, description, category, source, updatedAt, updatedBy
                       GSI: category-agentId — query all policies of a type across agents
