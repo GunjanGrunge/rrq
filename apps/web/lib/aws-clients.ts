@@ -14,6 +14,7 @@ import {
   InvokeModelCommand,
   InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { EC2Client } from "@aws-sdk/client-ec2";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
 
@@ -41,13 +42,12 @@ export function getBedrockClient(): BedrockRuntimeClient {
   return _bedrock;
 }
 
-// ── EC2 (lazy — @aws-sdk/client-ec2 installed in Phase 4) ───────────────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _ec2: any = null;
+// ── EC2 ───────────────────────────────────────────────────────────────────────
 
-export async function getEC2Client() {
+let _ec2: EC2Client | null = null;
+
+export function getEC2Client(): EC2Client {
   if (!_ec2) {
-    const { EC2Client } = await import("@aws-sdk/client-ec2");
     _ec2 = new EC2Client({ region: REGION });
   }
   return _ec2;

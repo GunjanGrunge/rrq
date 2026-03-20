@@ -141,7 +141,7 @@ export const qeonProduceWorkflow = inngest.createFunction(
         const rewritten = await rewriteWeakSections(
           scriptOutput,
           seoOutput,
-          qualityOutput.weakSections!
+          qualityOutput.weakSections!.map((s) => ({ sectionId: s, score: 0, feedback: "" }))
         );
         await updateJobStep(briefId, 6, "quality-rewrite", "complete");
         return rewritten;
@@ -176,10 +176,53 @@ export const qeonProduceWorkflow = inngest.createFunction(
       }
     }
 
-    // TODO: Phase 12 — On The Line council approval gate fires here.
-    // All 7 agents (Rex → Zara → Aria → Qeon → Muse → Regum → Zeus) sign off.
-    // step.waitForEvent("council-approved", { event: "council/approved", timeout: "2h" })
-    // Block until council clears. DEFERRED → fail with reason.
+    // ── Step 6d: On The Line Council Gate ────────────────────────────
+    const councilSession = await step.run("step-6d-council", async () => {
+      await updateJobStep(briefId, 6, "council", "in_progress");
+      // Trigger council session via Inngest event
+      await inngest.send({
+        name: "council/session.triggered",
+        data: {
+          jobId: briefId,
+          qeonBrief: {
+            topic: brief.topic,
+            angle: brief.angle,
+            niche: brief.niche,
+            tone: brief.tone,
+            contentType: brief.contentType,
+            competitorGap: brief.competitorGap,
+            keywordFocus: brief.keywordFocus,
+            confidenceScore: qualityOutput.overall * 10,
+          },
+        },
+      });
+      // Inline council run (avoids waitForEvent complexity — council is synchronous)
+      const { runCouncilSession } = await import("@/lib/council/run-council");
+      const session = await runCouncilSession(briefId, {
+        topic: brief.topic,
+        angle: brief.angle,
+        niche: brief.niche,
+        tone: brief.tone,
+        contentType: brief.contentType,
+        competitorGap: brief.competitorGap,
+        keywordFocus: brief.keywordFocus,
+        confidenceScore: qualityOutput.overall * 10,
+      });
+      await updateJobStep(briefId, 6, "council", session.status === "APPROVED" ? "complete" : "failed");
+      return session;
+    });
+
+    if (councilSession.status === "DEFERRED" || councilSession.status === "DEADLOCKED") {
+      const reason = `Council ${councilSession.status}: ${councilSession.zeusVerdict}`;
+      await step.run("step-6d-council-fail", async () => {
+        await markJobFailed(briefId, "council", reason);
+        await reportToZeus(briefId, brief.topic, "failed", {
+          failedStep: "council",
+          error: reason,
+        });
+      });
+      return { briefId, status: "council_deferred", reason };
+    }
 
     // ── Step 7: Audio Generation ──────────────────────────────────────
     const audioOutput: AudioGenOutputType = await step.run("step-7-audio", async () => {
@@ -256,18 +299,18 @@ export const qeonProduceWorkflow = inngest.createFunction(
 
     // ── Step 14: Report success to Zeus ──────────────────────────────
     await step.run("step-14-report", async () => {
-      await markJobComplete(briefId, uploadOutput.videoId);
+      await markJobComplete(briefId, uploadOutput.youtube.videoId);
       await reportToZeus(briefId, brief.topic, "success", {
-        videoId: uploadOutput.videoId,
-        youtubeUrl: uploadOutput.youtubeUrl,
+        videoId: uploadOutput.youtube.videoId,
+        youtubeUrl: uploadOutput.youtube.videoUrl,
       });
     });
 
     return {
       briefId,
       status: "complete",
-      videoId: uploadOutput.videoId,
-      youtubeUrl: uploadOutput.youtubeUrl,
+      videoId: uploadOutput.youtube.videoId,
+      youtubeUrl: uploadOutput.youtube.videoUrl,
     };
   }
 );

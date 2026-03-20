@@ -3,9 +3,83 @@ import { NextResponse } from "next/server";
 import { buildZeusDashboard } from "@/lib/zeus/zeus-agent";
 import { getAgentScores } from "@/lib/zeus/agent-scorer";
 import { getRecentEpisodes } from "@/lib/zeus/episode-writer";
+import { getDynamoClient } from "@/lib/aws-clients";
+import { ScanCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+
+async function getJobQueue(channelId: string) {
+  const dynamo = getDynamoClient();
+  try {
+    const result = await dynamo.send(
+      new ScanCommand({
+        TableName: "production-jobs",
+        FilterExpression: "channelId = :cid",
+        ExpressionAttributeValues: { ":cid": channelId },
+        ProjectionExpression:
+          "jobId, topic, niche, #s, createdAt, councilVotes, retroOutcome",
+        ExpressionAttributeNames: { "#s": "status" },
+        Limit: 50,
+      })
+    );
+    return result.Items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function getRecentCouncilSessionsForDashboard() {
+  const dynamo = getDynamoClient();
+  try {
+    const result = await dynamo.send(
+      new ScanCommand({
+        TableName: "council-sessions",
+        Limit: 5,
+      })
+    );
+    return result.Items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function getActiveRetroSessions() {
+  const dynamo = getDynamoClient();
+  try {
+    const result = await dynamo.send(
+      new ScanCommand({
+        TableName: "retro-sessions",
+        FilterExpression: "#s <> :completed",
+        ExpressionAttributeNames: { "#s": "status" },
+        ExpressionAttributeValues: { ":completed": "COMPLETED" },
+        Limit: 20,
+      })
+    );
+    return result.Items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function getRecentVeraResults() {
+  const dynamo = getDynamoClient();
+  try {
+    const result = await dynamo.send(
+      new QueryCommand({
+        TableName: "production-jobs",
+        IndexName: "veraStatus-index",
+        KeyConditionExpression: "veraStatus = :status",
+        ExpressionAttributeValues: { ":status": "CLEARED" },
+        ProjectionExpression: "jobId, veraQAResult, veraStatus, veraCompletedAt",
+        Limit: 3,
+        ScanIndexForward: false,
+      })
+    );
+    return (result.Items ?? []).map((item) => item.veraQAResult).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 export async function GET(req: Request): Promise<NextResponse> {
-  // Clerk auth protection
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,11 +89,22 @@ export async function GET(req: Request): Promise<NextResponse> {
   const channelId = url.searchParams.get("channelId") ?? "default";
 
   try {
-    // Fetch dashboard data — parallelise non-dependent calls
-    const [dashboard, agentScores, recentEpisodes] = await Promise.allSettled([
+    const [
+      dashboard,
+      agentScores,
+      recentEpisodes,
+      jobQueue,
+      councilSessions,
+      activeRetros,
+      veraResults,
+    ] = await Promise.allSettled([
       buildZeusDashboard(channelId),
       getAgentScores(channelId),
       getRecentEpisodes("zeus", 5),
+      getJobQueue(channelId),
+      getRecentCouncilSessionsForDashboard(),
+      getActiveRetroSessions(),
+      getRecentVeraResults(),
     ]);
 
     const dashboardData =
@@ -50,15 +135,14 @@ export async function GET(req: Request): Promise<NextResponse> {
             recentEpisodes: [],
           };
 
-    const scores =
-      agentScores.status === "fulfilled" ? agentScores.value : [];
-    const episodes =
-      recentEpisodes.status === "fulfilled" ? recentEpisodes.value : [];
-
     return NextResponse.json({
       dashboard: dashboardData,
-      agentScores: scores,
-      recentEpisodes: episodes,
+      agentScores: agentScores.status === "fulfilled" ? agentScores.value : [],
+      recentEpisodes: recentEpisodes.status === "fulfilled" ? recentEpisodes.value : [],
+      jobQueue: jobQueue.status === "fulfilled" ? jobQueue.value : [],
+      councilSessions: councilSessions.status === "fulfilled" ? councilSessions.value : [],
+      activeRetros: activeRetros.status === "fulfilled" ? activeRetros.value : [],
+      veraResults: veraResults.status === "fulfilled" ? veraResults.value : [],
       generatedAt: new Date().toISOString(),
       channelId,
     });

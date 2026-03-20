@@ -69,7 +69,7 @@ export async function runParallelMediaStep(
         audioS3Key: audioSection?.s3Key ?? audioOutput.voiceoverUrl,
         durationMs: audioSection?.durationMs ?? 5000,
         displayMode: s.displayMode as "avatar-fullscreen" | "broll-with-corner-avatar",
-        cueMap: [] as { timestamp: number; cue: string }[],
+        cueMap: [] as { timestamp: number; cue: "RISE" | "PEAK" | "DROP" | "WARM" | "QUESTION" | "PIVOT" | "EMPHASIS"; expressionHint: string }[],
       };
     });
 

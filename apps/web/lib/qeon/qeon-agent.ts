@@ -203,7 +203,7 @@ export async function reportToZeus(
     error?: string;
   }
 ): Promise<void> {
-  const eventType = outcome === "success" ? "video_published" : "production_failed";
+  const eventType = outcome === "success" ? "video_published" : "content_rejected";
 
   // Write episode to Zeus memory (S3 + KB sync)
   await writeEpisode(
@@ -223,16 +223,14 @@ export async function reportToZeus(
   );
 
   // Send agent message to Zeus
-  await sendAgentMessage(
-    "QEON",
-    "ZEUS",
-    outcome === "success" ? "PRODUCTION_COMPLETE" : "PRODUCTION_FAILED",
-    {
-      briefId,
-      topic,
-      ...data,
-    }
-  ).catch((err) =>
+  await sendAgentMessage({
+    from: "QEON",
+    recipientAgent: "ZEUS",
+    type: outcome === "success" ? "PRODUCTION_COMPLETE" : "QUALITY_FAIL",
+    priority: outcome === "success" ? "MEDIUM" : "HIGH",
+    payload: { briefId, topic, ...data },
+    requiresResponse: false,
+  }).catch((err) =>
     console.error(`[qeon:report-to-zeus:${briefId}] Message send failed:`, err)
   );
 }

@@ -262,7 +262,8 @@ async function buildQeonBrief(
   opp: RexOpportunity,
   evaluation: RegumEvaluation,
   memories: string[],
-  channelMode: "AUTOPILOT_MODE" | "REX_MODE" | "STUDIO_MODE"
+  channelMode: "AUTOPILOT_MODE" | "REX_MODE" | "STUDIO_MODE",
+  userId: string
 ): Promise<QeonBrief> {
   const urgency = mapUrgency(opp.urgency);
   const scheduledPublish = await findNextUploadSlot(urgency);
@@ -294,6 +295,7 @@ async function buildQeonBrief(
 
   return {
     briefId,
+    userId,
     topicId: opp.topicId,
     topic: opp.topic,
     niche: opp.niche,
@@ -430,7 +432,8 @@ Maximum 3 greenlights per run.`;
         opp,
         evaluation,
         memories.map(m => m.text),
-        channelMode
+        channelMode,
+        userId
       );
       await writeQeonBrief(brief);
 

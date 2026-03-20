@@ -1,6 +1,6 @@
 import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { PutItemCommand } from "@aws-sdk/client-dynamodb";
-import { marshall } from "@aws-sdk/lib-dynamodb";
+import { marshall } from "@aws-sdk/util-dynamodb";
 import { getDynamoClient, getBedrockClient } from "@/lib/aws-clients";
 
 import { fetchAllSignals, type RawSignal } from "./signal-fetchers";
@@ -118,7 +118,7 @@ export async function runRexScan(
   channelMode: "AUTOPILOT_MODE" | "REX_MODE" | "STUDIO_MODE",
   niche?: string
 ): Promise<RexOpportunity[]> {
-  await setAgentStatus("rex", "WORKING", "scanning");
+  await setAgentStatus("rex", "RUNNING", "scanning");
 
   try {
     // 1. Zeus memory injection

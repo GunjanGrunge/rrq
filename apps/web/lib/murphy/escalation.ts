@@ -17,14 +17,14 @@ export async function writeSafetyEscalation(
   murphyVersion: string
 ): Promise<void> {
   try {
-    await sendAgentMessage("MURPHY", "ZEUS", "SAFETY_ESCALATION", {
-      userId,
-      sessionId,
-      arcScore,
-      trigger,
-      conversationSummary,
-      recommendedAction,
-      murphyVersion,
+    await sendAgentMessage({
+      from: "MURPHY",
+      recipientAgent: "ZEUS",
+      type: "SAFETY_ESCALATION",
+      priority: "URGENT",
+      payload: { userId, sessionId, arcScore, trigger, conversationSummary, recommendedAction, murphyVersion },
+      requiresResponse: true,
+      responseDeadlineMinutes: 30,
     });
   } catch (err) {
     console.error(`[murphy:escalation:${sessionId}] Failed to write SAFETY_ESCALATION:`, err);

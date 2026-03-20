@@ -67,6 +67,7 @@ interface AgentState {
   setAgentScores: (scores: AgentScore[]) => void;
   setCommentInsights: (insights: AgentState["commentInsights"]) => void;
   addMemoryEntry: (entry: Omit<AgentState["memoryLog"][0], "timestamp">) => void;
+  setMemoryLog: (entries: AgentState["memoryLog"]) => void;
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -134,4 +135,6 @@ export const useAgentStore = create<AgentState>((set) => ({
         ...state.memoryLog.slice(0, 4), // keep last 5
       ],
     })),
+
+  setMemoryLog: (entries) => set({ memoryLog: entries }),
 }));

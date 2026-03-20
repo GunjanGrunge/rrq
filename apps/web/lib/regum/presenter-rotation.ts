@@ -2,7 +2,7 @@ import {
   ScanCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
-import { marshall, unmarshall } from "@aws-sdk/lib-dynamodb";
+import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { getDynamoClient } from "@/lib/aws-clients";
 import { sendAgentMessage } from "@/lib/mission/messaging";
 import type { AvatarProfile } from "./types";
