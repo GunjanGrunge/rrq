@@ -13,7 +13,7 @@ User message
   └── Murphy (lib/murphy/)
         ├── Session window check (last 10–20 messages — live intent detection)
         ├── Pattern memory check (DynamoDB fast lookup + Bedrock KB semantic search)
-        ├── Haiku intent classifier (novel phrasing not in pattern memory)
+        ├── Sonnet intent classifier (novel phrasing not in pattern memory)
         ├── Conversation arc scorer (is this conversation escalating?)
         └── Verdict: CLEAR | WATCH | ESCALATE_TO_ZEUS | BLOCK_IMMEDIATE
               │
@@ -40,11 +40,17 @@ Zeus
 
 ## Model
 
-**Haiku** (`anthropic.claude-haiku-4-5-20251001`) via AWS Bedrock.
+**Sonnet 4.6** (`anthropic.claude-sonnet-4-5`) via AWS Bedrock.
 
-Murphy's job is fast classification, not deep reasoning. Haiku runs on every message for novel intent detection. The expensive reasoning (escalation decisions) is done by Zeus (Opus) only when Murphy escalates — asynchronously, not blocking the current request.
+Murphy runs on every chat message and must catch subtle escalation patterns and novel phrasing. Sonnet 4.6 is the right balance:
 
-Enable prompt caching on Murphy's system prompt — the intent taxonomy, known pattern categories, and escalation rules are large, stable, and cache well.
+- Pattern detection requires nuanced reasoning (e.g., "make a drone" + "payload capacity" + "stadiums" = weaponisation only in arc context)
+- ~$0.0003 per message — 50× cheaper than Opus, still affordable at scale
+- Better accuracy on novel intent classification prevents false negatives (missing harmful intent is worse than false positives)
+- Self-learning loop depends on high-quality pattern detection — Sonnet's reasoning improves pattern quality
+- The expensive reasoning (escalation decisions) stays with Zeus (Opus) — Murphy raises high-confidence flags
+
+Enable prompt caching on Murphy's system prompt — the intent taxonomy, known pattern categories, arc scoring rules, and escalation guidelines are large, stable, and cache well.
 
 ---
 
@@ -53,7 +59,7 @@ Enable prompt caching on Murphy's system prompt — the intent taxonomy, known p
 1. **Live conversation surveillance** — watch every message in real time, flag immediately at any point in the conversation, no delay even if the user pivots to harmful content at message 20
 2. **Conversation arc detection** — score the full conversation trajectory, not just the current message. Warn Zeus early if the arc looks like a known escalation pattern
 3. **Pattern memory lookup** — DynamoDB fast lookup first, Bedrock KB semantic search if DynamoDB misses
-4. **Novel intent learning** — when Haiku catches something pattern memory missed, write the full conversation + flagged message to pattern memory (pending Oracle Domain 15 approval)
+4. **Novel intent learning** — when Sonnet catches something pattern memory missed, write the full conversation + flagged message to pattern memory (pending Oracle Domain 15 approval)
 5. **Rex validation** — for SENSITIVE_TOPIC verdicts, Murphy calls Rex topic viability check (10s timeout)
 6. **Zeus escalation** — Murphy never bans unilaterally on a pattern. Pattern-based suspicion is written to `agent-messages` bus; Zeus evaluates async on next scheduled run. Current request defaults to WATCH.
 7. **Version control** — every Murphy pattern addition/change is a versioned event in `agent-version-registry`. Oracle Domain 15 approves all self-learning updates. Zeus approves version activation.
@@ -72,7 +78,7 @@ type MurphyVerdict =
 
 type MurphyTrigger =
   | "PATTERN_MEMORY_HIT"    // matched known pattern in DynamoDB or KB
-  | "HAIKU_NOVEL_INTENT"    // Haiku caught something pattern memory missed
+  | "HAIKU_NOVEL_INTENT"    // Sonnet caught something pattern memory missed
   | "ARC_ESCALATION"        // conversation trajectory matches known escalation arc
   | "SUDDEN_PIVOT"          // user was clean, suddenly injected harmful content
   | "SENSITIVE_TOPIC"       // grey-zone — Rex validation required
@@ -86,7 +92,7 @@ interface MurphyResult {
   arcScore:         number;          // 0–1: how suspicious is the full conversation arc
   zeusAlert?:       string;          // injected into Zeus context if WATCH or ESCALATE
   patternId?:       string;          // matched pattern ID from DynamoDB if PATTERN_MEMORY_HIT
-  novelPatternDraft?: NovelPattern;  // populated when Haiku catches something new
+  novelPatternDraft?: NovelPattern;  // populated when Sonnet catches something new
   decisionEvent:    MurphyDecisionEvent; // always written to agent-decision-log
 }
 
@@ -133,15 +139,15 @@ Step 3 — Conversation arc scoring
   ArcScore > 0.85 → ESCALATE_TO_ZEUS even if current message is CLEAR
 
 Step 4 — Sudden pivot detection
-  Note: Step 6 (Haiku classifier) runs unconditionally on every message and produces
+  Note: Step 6 (Sonnet classifier) runs unconditionally on every message and produces
   `isolatedMessageScore` as part of a shared `MurphyEvalContext` object. Step 4 reads
   this value from the same context — Step 6 is not re-run.
   New session default: if no prior murphy-sessions record exists, sessionBaseline = 0.0
   (SUDDEN_PIVOT detection is correctly dormant on message 1 of a new session).
-  Compare isolatedMessageScore (Haiku single-message harm score from Step 6)
+  Compare isolatedMessageScore (Sonnet single-message harm score from Step 6)
   against sessionBaseline arcScore (loaded from murphy-sessions in Step 3, default 0.0)
   If sessionBaseline < 0.3 AND isolatedMessageScore > 0.8:
-    trigger = SUDDEN_PIVOT → BLOCK_IMMEDIATE or ESCALATE_TO_ZEUS depending on Haiku confidence
+    trigger = SUDDEN_PIVOT → BLOCK_IMMEDIATE or ESCALATE_TO_ZEUS depending on Sonnet confidence
 
 Step 5 — Bedrock KB semantic search (if DynamoDB missed)
   Query murphy-knowledge-base (separate KB from council index — see Infrastructure section)
@@ -149,7 +155,7 @@ Step 5 — Bedrock KB semantic search (if DynamoDB missed)
   Returns top-3 semantically similar past flagged conversations
   If top result similarity > 0.80 → treat as PATTERN_MEMORY_HIT (same logic as Step 2)
 
-Step 6 — Haiku novel intent classifier (if KB missed or low confidence)
+Step 6 — Sonnet novel intent classifier (if KB missed or low confidence)
   Input: normalised message + last 5 messages from session window (conversation context)
   Returns: IntentCategory + confidence + reasoning
   HARMFUL + confidence ≥ 0.85 → BLOCK_IMMEDIATE + write novelPatternDraft
@@ -204,7 +210,7 @@ Compare the first message's normalised token set against the current message's t
 Higher = conversation has moved further from its starting topic. Computed with simple token overlap (no embedding call needed).
 
 **escalationVelocity (0–1):**
-Per-message harm score is stored in the session window (`SessionMessage.harmScore`, set by Haiku Step 6).
+Per-message harm score is stored in the session window (`SessionMessage.harmScore`, set by Sonnet Step 6).
 `escalationVelocity = (avgHarmScore(last3) - avgHarmScore(first3)) / max(avgHarmScore(first3), 0.01)`
 Clamped to [0, 1]. Measures how fast harm scores are rising across the conversation.
 **Minimum-message guard:** if `messageCount < 3`, `escalationVelocity = 0.0`. Arc escalation
@@ -246,7 +252,7 @@ When Murphy produces `ESCALATE_TO_ZEUS`:
     sessionId,
     arcScore,
     trigger,
-    conversationSummary: string,  // Haiku-generated 2-sentence summary (async, non-blocking)
+    conversationSummary: string,  // Sonnet-generated 2-sentence summary (async, non-blocking)
     recommendedAction: "WARN" | "BLOCK" | "MONITOR",
     murphyVersion: string,
   }
@@ -323,7 +329,7 @@ Murphy pattern approval is handled by **Oracle Domain 15**, added to `skills/ora
 ## The Drone Example — How Murphy Handles It
 
 **Scenario 1: "I want to make a video about drone racing"**
-→ No DynamoDB match, KB no similarity, Haiku → VALID → CLEAR
+→ No DynamoDB match, KB no similarity, Sonnet → VALID → CLEAR
 
 **Scenario 2: "Can you help me make a drone shot for my wedding video"**
 → Same → CLEAR
@@ -338,7 +344,7 @@ Murphy pattern approval is handled by **Oracle Domain 15**, added to `skills/ora
 
 **Scenario 5: "how to make a drone" (ambiguous)**
 → DynamoDB: `drone_weaponisation` pattern has `arcContext = ["payload","explosive","crowded","damage"]` — none in arc → no match
-→ Haiku → SENSITIVE_TOPIC
+→ Sonnet → SENSITIVE_TOPIC
 → Rex: strong market signal for DIY drone / drone videography
 → CLEAR with sensitiveContext → Zeus responds as content strategist
 
@@ -455,7 +461,7 @@ Rollback = `status: DEPRECATED` on any pattern in `murphy-patterns`. No redeploy
 | `lib/murphy/session.ts` | Load/update murphy-sessions sliding window using x-session-id UUID |
 | `lib/murphy/pattern-lookup.ts` | DynamoDB token-overlap lookup + murphy-knowledge-base semantic search |
 | `lib/murphy/arc-scorer.ts` | computeArcScore() — topicDrift, escalationVelocity, sensitiveTermDensity, patternSimilarity with defined weights |
-| `lib/murphy/haiku-classifier.ts` | Haiku intent classification with 5-message conversation context |
+| `lib/murphy/intent-classifier.ts` | Sonnet intent classification with 5-message conversation context |
 | `lib/murphy/novel-pattern-writer.ts` | Write novelPatternDraft to murphy-patterns (PENDING_ORACLE) + full conversation to S3 |
 | `lib/murphy/escalation.ts` | Write SAFETY_ESCALATION to agent-messages; read pending ZEUS_ESCALATION_DECISION on session load |
 | `lib/murphy/decision-logger.ts` | Write MurphyDecisionEvent to agent-decision-log on every evaluation |
@@ -479,7 +485,7 @@ Rollback = `status: DEPRECATED` on any pattern in `murphy-patterns`. No redeploy
 ## Agent Status Entry
 
 ```typescript
-{ agentId: "murphy", humanName: "Murphy", publicTitle: "Safety Intelligence", model: "Haiku" }
+{ agentId: "murphy", humanName: "Murphy", publicTitle: "Safety Intelligence", model: "Sonnet" }
 ```
 
 ---
