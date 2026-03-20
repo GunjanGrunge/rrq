@@ -151,6 +151,8 @@ posting. Facebook Ads integration spec'd for a future phase.
 | Qeon agent | `skills/agents/qeon/SKILL.md` |
 | Rex Memory Store (scoring model, dedup, niche profiles, RRQ state) | `lib/rex/memory-store.ts` inline — self-contained, no skill file needed |
 | RRQ Trigger Modes (cron, queue-low, manual) | `lib/rex/rrq-trigger.ts` inline — wires to EventBridge + Inngest |
+| AWS client singletons (DynamoDB, Bedrock, EC2, Lambda, S3) | `lib/aws-clients.ts` — import `getDynamoClient()` etc., never instantiate directly |
+| Agent policy reader (runtime-configurable thresholds) | `lib/policies/get-policy.ts` — `getNumericPolicy()`, `getStringPolicy()`, `getStringArrayPolicy()` |
 
 ---
 ## Full System Architecture
@@ -723,12 +725,31 @@ RRQ Retro:
 **No hardcoded credentials.** AWS Secrets Manager for all API keys.
 IAM roles for Lambda and EC2. Never put keys in .env.local for prod.
 
+**AWS clients: use singletons.** Import from `lib/aws-clients.ts` — never
+create `new DynamoDBClient()` or `new BedrockRuntimeClient()` directly.
+Use `getDynamoClient()`, `getBedrockClient()`, `getEC2Client()`, `getLambdaClient()`,
+`getS3Client()`. For Bedrock calls, prefer `lib/bedrock.ts` helpers (`callBedrock`,
+`callBedrockJSON`, `callBedrockStream`) which handle model routing + prompt caching.
+
+**Agent thresholds: use policy reader.** Import from `lib/policies/get-policy.ts`.
+Use `getNumericPolicy(agentId, policyKey, fallbackDefault)` instead of hardcoded
+magic numbers. Keep the hardcoded value as the fallback so the system works
+before the `agent-policies` DynamoDB table is seeded. Oracle can override at runtime.
+
 **Every Lambda must:**
 - Export typed handler
 - Wrap in try/catch with CloudWatch logging
 - Include jobId in every log line
 - Update DynamoDB at start, each major step, and completion/failure
 - Return `{ statusCode, body }` with typed body
+
+**Error logging format:** Always use `[module:context]` prefix.
+Pattern: `console.error(\`[agent:channelId:jobId] description:\`, err)`
+Examples:
+- `[zeus:comments:video123] Failed to process:`
+- `[messaging:rex→the_line] Failed to send GREENLIGHT:`
+- `[rex:scan] Niche relevance check failed:`
+Never log bare `console.error(err)` without module and context identifiers.
 
 **Every Inngest step must:**
 - Use `step.run()` for every discrete operation

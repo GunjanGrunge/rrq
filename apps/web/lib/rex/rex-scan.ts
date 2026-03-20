@@ -1,9 +1,7 @@
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient, getBedrockClient } from "@/lib/aws-clients";
 
 import { fetchAllSignals, type RawSignal } from "./signal-fetchers";
 import {
@@ -32,12 +30,11 @@ import { sendAgentMessage } from "../mission/messaging";
 import { queryAgentMemory } from "../memory/kb-query";
 import { setAgentStatus } from "../memory/agent-status";
 import { getRexConfidenceThreshold } from "../mission/phase-engine";
+import { getNumericPolicy } from "../policies/get-policy";
 import type { ChannelPhase } from "../mission/phase-engine";
 
-const bedrock = new BedrockRuntimeClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const bedrock = getBedrockClient();
+const db = getDynamoClient();
 
 export interface RexOpportunity {
   topicId: string;
@@ -141,10 +138,12 @@ export async function runRexScan(
     const weighted = await applySourceWeights(clusters);
     const nicheProfile = await getNicheProfile(channelId);
 
+    const nicheRelevanceDrop = await getNumericPolicy("rex", "niche_relevance_drop", 0.4);
+
     const filtered: TopicCluster[] = [];
     for (const cluster of weighted) {
       const relevance = await getNicheRelevanceScore(cluster.topic, nicheProfile);
-      if (relevance < 0.4) continue; // hard drop
+      if (relevance < nicheRelevanceDrop) continue; // hard drop — configurable via agent-policies
       if (await isTopicInCooldown(cluster.topic)) continue; // dedup 72h
       filtered.push(cluster);
     }
@@ -179,13 +178,14 @@ export async function runRexScan(
       }
     }
 
-    // Sort by overall confidence desc, take top 15 for Opus
+    // Sort by overall confidence desc, take top N for Opus
+    const topN = await getNumericPolicy("rex", "opus_top_n", 15);
     const top = scored
       .sort((a, b) => b.confidence.overall - a.confidence.overall)
-      .slice(0, 15);
+      .slice(0, topN);
 
     // 7. Opus reasoning pass
-    const confidenceThreshold = getRexConfidenceThreshold(phase);
+    const confidenceThreshold = await getRexConfidenceThreshold(phase);
     const watchlistSummary = watchlist
       .slice(0, 5)
       .map(w => ({
@@ -360,7 +360,7 @@ Format:
           // Forward to THE LINE → ARIA → Regum chain
           await sendAgentMessage({
             from: "rex",
-            to: "the_line",
+            recipientAgent: "the_line",
             type: "GREENLIGHT",
             priority:
               opportunity.urgency === "publish_now" ? "URGENT" : "HIGH",

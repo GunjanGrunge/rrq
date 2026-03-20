@@ -1,14 +1,11 @@
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
-import {
-  DynamoDBClient,
   UpdateItemCommand,
   GetItemCommand,
   PutItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { getDynamoClient, getBedrockClient } from "@/lib/aws-clients";
 import type {
   CommentClassification,
   RawComment,
@@ -16,10 +13,8 @@ import type {
   VideoMemoryRecord,
 } from "./types";
 
-const bedrock = new BedrockRuntimeClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const bedrock = getBedrockClient();
+const db = getDynamoClient();
 
 const ZEUS_COMMENT_SYSTEM_PROMPT = `You are Zeus, the performance intelligence system for RRQ — an AI-powered YouTube channel.
 

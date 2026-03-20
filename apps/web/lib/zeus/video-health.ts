@@ -1,13 +1,13 @@
 import {
-  DynamoDBClient,
   UpdateItemCommand,
   GetItemCommand,
   QueryCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 import type { VideoHealthScore, VideoAction, VideoMemoryRecord } from "./types";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const db = getDynamoClient();
 
 // ─── Fetch video health metrics from YouTube Analytics API ───────────────────
 

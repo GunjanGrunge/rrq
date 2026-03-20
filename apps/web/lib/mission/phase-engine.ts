@@ -1,3 +1,5 @@
+import { getNumericPolicy } from "@/lib/policies/get-policy";
+
 export type ChannelPhase = "COLD_START" | "MOMENTUM" | "PUSH" | "MONETISED";
 
 export interface ChannelMetrics {
@@ -38,13 +40,15 @@ export function calculateDailyRequirements(
   return { subsPerDay, hoursPerDay, daysLeft, onTrack, currentSubsRate, currentHoursRate };
 }
 
-export function getRexConfidenceThreshold(phase: ChannelPhase): number {
-  switch (phase) {
-    case "COLD_START": return 70;
-    case "MOMENTUM":   return 60;
-    case "PUSH":       return 55;
-    case "MONETISED":  return 60;
-  }
+const CONFIDENCE_DEFAULTS: Record<ChannelPhase, number> = {
+  COLD_START: 70,
+  MOMENTUM: 60,
+  PUSH: 55,
+  MONETISED: 60,
+};
+
+export async function getRexConfidenceThreshold(phase: ChannelPhase): Promise<number> {
+  return await getNumericPolicy("rex", `confidence_threshold_${phase}`, CONFIDENCE_DEFAULTS[phase]);
 }
 
 export function getRexTopicPriority(phase: ChannelPhase): "evergreen_first" | "balanced" | "trending_first" {

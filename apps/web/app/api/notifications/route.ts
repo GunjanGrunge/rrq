@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   QueryCommand,
@@ -9,11 +8,10 @@ import {
   DeleteCommand,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 import { sendNotificationEmail } from "@/lib/notifications/send-notification-email";
 
-const dynamo = DynamoDBDocumentClient.from(
-  new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" })
-);
+const dynamo = DynamoDBDocumentClient.from(getDynamoClient());
 
 const TABLE = "notifications";
 const ARCHIVE_TABLE = "inbox-archive";

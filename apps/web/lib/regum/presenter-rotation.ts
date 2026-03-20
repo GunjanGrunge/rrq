@@ -1,13 +1,13 @@
 import {
-  DynamoDBClient,
   ScanCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 import { sendAgentMessage } from "@/lib/mission/messaging";
 import type { AvatarProfile } from "./types";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const db = getDynamoClient();
 
 export async function getAvatarRoster(): Promise<AvatarProfile[]> {
   const result = await db.send(
@@ -99,7 +99,7 @@ export async function runRosterHealthCheck(): Promise<void> {
     if (daysSinceUsed >= 14) {
       await sendAgentMessage({
         from: "regum",
-        to: "zeus",
+        recipientAgent: "zeus",
         type: "PUSH_ALERT",
         priority: "MEDIUM",
         requiresResponse: false,
@@ -119,7 +119,7 @@ export async function runRosterHealthCheck(): Promise<void> {
     if (lowScoringTypes >= 3) {
       await sendAgentMessage({
         from: "regum",
-        to: "oracle",
+        recipientAgent: "oracle",
         type: "PUSH_ALERT",
         priority: "MEDIUM",
         requiresResponse: false,
@@ -150,7 +150,7 @@ export async function runRosterHealthCheck(): Promise<void> {
       );
       await sendAgentMessage({
         from: "regum",
-        to: "zeus",
+        recipientAgent: "zeus",
         type: "PUSH_ALERT",
         priority: "HIGH",
         requiresResponse: false,

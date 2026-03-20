@@ -291,7 +291,7 @@ export const ORACLE_DOMAINS = [
     },
   },
 
-  // ── Domain 9 (added Phase 3.5) ────────────────────────────────────────────
+  // ── Domain 9 (added Phase 3.5, upgraded to live signal feeds) ──────────────
   {
     id: "PACKAGE_DISCOVERY",
     name: "TONY Toolbox — Package & Library Discovery",
@@ -299,6 +299,10 @@ export const ORACLE_DOMAINS = [
                  "animation capabilities. Track Remotion sub-package releases, " +
                  "new Lambda-safe charting or animation libraries, and updates " +
                  "to existing packages in TONY's toolbox. " +
+                 "Uses three signal tiers: (A) deterministic GitHub Releases API " +
+                 "polling for known packages, (B) npm registry + GitHub Trending " +
+                 "for new package discovery, (C) RSS practitioner feeds for " +
+                 "community-level alpha before packages reach search indexes. " +
                  "Strict inclusion criteria — prevents noise: " +
                  "(1) reduces Lambda bundle size >10%, OR " +
                  "(2) adds a TONY output category not currently supported, OR " +
@@ -308,13 +312,106 @@ export const ORACLE_DOMAINS = [
     primaryAgent: "ZEUS",    // Zeus injects into TONY at morning briefing
     secondaryAgents: ["QEON", "MUSE"],
     researchDepth: "STANDARD",
-    sources: [
-      "Remotion GitHub changelog and releases",
-      "npm new packages weekly — categories: video, animation, charts, visualization",
-      "Recharts, Nivo, D3 release notes",
-      "AWS Lambda community — new layer packages",
-      "React ecosystem newsletters",
+
+    // ── Tier A — GitHub Releases API (deterministic, exact, no hallucination) ──
+    // Poll on every Oracle run. No auth needed for public repos (60 req/hr
+    // unauthenticated). Add GITHUB_TOKEN env var to reach 5000 req/hr.
+    // Returns exact semver, changelog body, and publish date.
+    githubReleasesWatchlist: [
+      // Core TONY stack
+      { repo: "remotion-dev/remotion",          label: "Remotion core" },
+      { repo: "recharts/recharts",              label: "Recharts" },
+      { repo: "plouc/nivo",                     label: "Nivo" },
+      { repo: "d3/d3",                          label: "D3" },
+      { repo: "pmndrs/react-spring",            label: "react-spring" },
+      { repo: "framer/motion",                  label: "Framer Motion" },
+      { repo: "Sparticuz/chromium",             label: "@sparticuz/chromium" },
+      { repo: "nickvdyck/puppeteer-core-sharp", label: "puppeteer-core" },
+      // Remotion sub-packages (each is its own GitHub repo section)
+      { repo: "remotion-dev/remotion",          label: "@remotion/transitions", tagPrefix: "@remotion/transitions" },
+      { repo: "remotion-dev/remotion",          label: "@remotion/shapes",      tagPrefix: "@remotion/shapes" },
+      { repo: "remotion-dev/remotion",          label: "@remotion/noise",       tagPrefix: "@remotion/noise" },
+      { repo: "remotion-dev/remotion",          label: "@remotion/skia",        tagPrefix: "@remotion/skia" },
+      { repo: "remotion-dev/remotion",          label: "@remotion/three",       tagPrefix: "@remotion/three" },
     ],
+    // API call pattern (runs in Oracle Lambda, not Puppeteer):
+    // GET https://api.github.com/repos/{repo}/releases/latest
+    // Compare tag_name against last-seen version stored in oracle-knowledge-index.
+    // If newer: pass changelog body to Nova Pro for inclusion filter evaluation.
+
+    // ── Tier B — npm Registry + GitHub Trending (new package discovery) ────────
+    // npm registry search API — no key, deterministic JSON, not web search
+    npmRegistryQueries: [
+      // Search by keywords in each relevant category
+      { keywords: ["animation", "react", "lambda"],       minWeeklyDownloads: 500 },
+      { keywords: ["visualization", "chart", "react19"],  minWeeklyDownloads: 500 },
+      { keywords: ["video", "remotion", "composition"],   minWeeklyDownloads: 100 },
+      { keywords: ["svg", "canvas", "animation", "react"],minWeeklyDownloads: 1000 },
+      { keywords: ["motion", "spring", "react"],          minWeeklyDownloads: 1000 },
+    ],
+    // API: GET https://registry.npmjs.org/-/v1/search?text=keywords:{kw1},{kw2}&ranking=popularity&size=25
+    // Filter: published within last 14 days OR downloads spiked >300% week-over-week
+    // Downloads spike check: GET https://api.npmjs.org/downloads/point/last-week/{packageName}
+    //                    vs: GET https://api.npmjs.org/downloads/point/2024-W{n-1}/{packageName}
+
+    // GitHub Trending — scraped by Puppeteer Lambda (already deployed)
+    githubTrendingScrape: {
+      url: "https://github.com/trending/javascript?since=weekly",
+      filter: {
+        minStarsGainedThisWeek: 200,
+        topicKeywords: ["animation", "video", "chart", "visualization", "motion", "render", "canvas", "svg"],
+      },
+      // Puppeteer fetches the page, extracts repo name + stars + description.
+      // Nova Pro evaluates each against inclusion criteria.
+      // Repos passing filter → check npm for corresponding package → inclusion filter.
+    },
+
+    // ── Tier C — RSS Practitioner Feeds (community alpha, earliest signal) ──────
+    // Parsed in Oracle Lambda (no Puppeteer needed — pure HTTP + XML parse).
+    // These feeds surface practitioner excitement BEFORE packages reach search indexes.
+    rssFeeds: [
+      {
+        url: "https://javascriptweekly.com/rss",
+        label: "JavaScript Weekly",
+        note: "High-signal weekly picks — editors curate only notable releases",
+      },
+      {
+        url: "https://bytes.dev/rss.xml",
+        label: "Bytes.dev",
+        note: "Weekly JS ecosystem roundup — tends to catch new libs early",
+      },
+      {
+        url: "https://dev.to/feed/tag/animation",
+        label: "dev.to #animation",
+        note: "Practitioner writeups — often the first long-form coverage of new libs",
+      },
+      {
+        url: "https://dev.to/feed/tag/react",
+        label: "dev.to #react",
+        note: "React ecosystem — catches new packages in real usage context",
+      },
+      {
+        url: "https://www.reddit.com/r/reactjs/top.rss?t=week",
+        label: "r/reactjs weekly top",
+        note: "Community signal — top posts often surface new tools with real feedback",
+      },
+      {
+        url: "https://www.reddit.com/r/javascript/top.rss?t=week",
+        label: "r/javascript weekly top",
+        note: "Broader JS ecosystem — catches non-React animation/viz tools",
+      },
+    ],
+    // RSS parse pattern:
+    // Fetch each feed → extract items published within last 7 days
+    // → Nova Pro reads all items in one batch prompt:
+    //   "From these articles, identify any npm packages in the animation,
+    //    video rendering, charting, or visualization space that are newly
+    //    released or gaining significant attention. For each, extract:
+    //    package name, category, why it is notable."
+    // → Identified packages → inclusion filter → oracle-knowledge-index if approved.
+
+    // ── Legacy web search queries (kept as fallback) ────────────────────────────
+    // Runs only if Tier A/B/C produce fewer than 3 candidates in a given run.
     queries: [
       "remotion new sub-packages released {currentMonth} {currentYear}",
       "new npm packages lambda safe animation visualization {currentYear}",
@@ -323,12 +420,43 @@ export const ORACLE_DOMAINS = [
       "AWS Lambda nodejs bundle size optimization packages {currentYear}",
       "lottie animation React 19 compatible {currentYear}",
     ],
-    // Inclusion filter applied BEFORE writing to oracle-knowledge-index:
-    // Package must meet at least ONE of the three criteria above.
-    // Oracle writes a brief evaluation: name, criteria met, estimated impact, install command.
-    // TONY gains the package in its next run after Zeus injects the context.
-    injectionTarget: "TONY",   // Zeus knows to route this to TONY's system context
+
+    // ── Rex signal intake (structured auto-emit from Rex's 6 sources) ───────────
+    // Rex emits RexPackageSignal automatically (not optionally) whenever he
+    // encounters an npm package reference in any of his 6 signal sources.
+    rexPackageSignalIntake: {
+      signalType: "RexPackageSignal",
+      table: "oracle-knowledge-index",
+      // Rex emits this structure whenever he sees a package mentioned in his sources:
+      schema: {
+        packageName: "string",         // e.g. '@remotion/skia'
+        sourceUrl: "string",           // where Rex saw it
+        contextSnippet: "string",      // the surrounding text (max 200 chars)
+        confidence: "number",          // 0-1, Rex's estimate of signal quality
+        detectedAt: "ISO8601",
+      },
+      // Oracle evaluates on next run — applies inclusion filter.
+      // Rex is never penalised for false positives — community signals are noisy.
+    },
+
+    // ── Inclusion filter (applied to ALL tiers before writing to index) ─────────
+    // Package must meet at least ONE criterion:
+    // (1) reduces Lambda bundle size >10%
+    // (2) adds a TONY output category not currently supported
+    // (3) fixes a measurable performance issue (render time, memory)
+    // Oracle writes: { name, criterionMet, estimatedImpact, installCommand, source, discoveredAt }
+    injectionTarget: "TONY",   // Zeus routes this to TONY's system context
     urgency: "NEXT_CYCLE",     // Package discovery is never urgent
+
+    // ── Run order within Domain 9 ────────────────────────────────────────────────
+    // 1. Tier A (GitHub Releases API) — deterministic, runs first, fastest
+    // 2. Tier B (npm registry + GitHub Trending) — new discovery
+    // 3. Tier C (RSS feeds) — community alpha, batch to Nova Pro
+    // 4. Rex signals (drain oracle-knowledge-index pending signals table)
+    // 5. Inclusion filter pass on all candidates from tiers 1-4
+    // 6. Legacy web search queries (only if fewer than 3 candidates found above)
+    // 7. Write approved packages to oracle-knowledge-index
+    // 8. Zeus injection at next morning briefing
 
     onDeprecatedPackageFound: `
       1. Identify the replacement package (must meet inclusion criteria)

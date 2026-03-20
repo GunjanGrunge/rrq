@@ -1,25 +1,23 @@
 import {
-  DynamoDBClient,
   UpdateItemCommand,
   GetItemCommand,
   QueryCommand,
   PutItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { getDynamoClient, getBedrockClient } from "@/lib/aws-clients";
 import type { AdInsight } from "./types";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
-const bedrock = new BedrockRuntimeClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
+const db = getDynamoClient();
+const bedrock = getBedrockClient();
 
 // ─── CPV thresholds by niche ──────────────────────────────────────────────────
+// Defaults kept here — overridable via agent-policies table (PK: "zeus", SK: "cpv_threshold_{niche}")
 
-const CPV_THRESHOLDS: Record<string, number> = {
+import { getNumericPolicy } from "@/lib/policies/get-policy";
+
+const CPV_DEFAULTS: Record<string, number> = {
   finance: 0.04,
   tech: 0.03,
   crypto: 0.04,
@@ -27,12 +25,14 @@ const CPV_THRESHOLDS: Record<string, number> = {
   default: 0.025,
 };
 
-function getCPVThreshold(niche: string): number {
+async function getCPVThreshold(niche: string): Promise<number> {
   const lower = niche.toLowerCase();
-  for (const [key, threshold] of Object.entries(CPV_THRESHOLDS)) {
-    if (lower.includes(key)) return threshold;
+  for (const key of Object.keys(CPV_DEFAULTS)) {
+    if (lower.includes(key)) {
+      return await getNumericPolicy("zeus", `cpv_threshold_${key}`, CPV_DEFAULTS[key]);
+    }
   }
-  return CPV_THRESHOLDS.default;
+  return await getNumericPolicy("zeus", "cpv_threshold_default", CPV_DEFAULTS.default);
 }
 
 // ─── Fetch ad insights from DynamoDB (written by ads-manager) ────────────────
@@ -192,8 +192,14 @@ Return ONLY valid JSON array. No preamble.`;
 
     // Fallback: apply threshold rules manually
     const now = new Date().toISOString();
+    const thresholdMap = new Map<string, number>();
+    for (const insight of insights) {
+      if (!thresholdMap.has(insight.niche)) {
+        thresholdMap.set(insight.niche, await getCPVThreshold(insight.niche));
+      }
+    }
     return insights.map((insight) => {
-      const cpvThreshold = getCPVThreshold(insight.niche);
+      const cpvThreshold = thresholdMap.get(insight.niche) ?? CPV_DEFAULTS.default;
       let signal: AdInsight["signal"];
       let reasoning: string;
 

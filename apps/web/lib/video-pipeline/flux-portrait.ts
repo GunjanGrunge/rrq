@@ -9,24 +9,16 @@
  * layer only — no EC2 client needed here.
  */
 
-import {
-  LambdaClient,
-  InvokeCommand,
-} from "@aws-sdk/client-lambda";
-import {
-  DynamoDBClient,
-  GetItemCommand,
-} from "@aws-sdk/client-dynamodb";
-import {
-  S3Client,
-  GetObjectCommand,
-} from "@aws-sdk/client-s3";
+import { InvokeCommand } from "@aws-sdk/client-lambda";
+import { GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getDynamoClient, getLambdaClient, getS3Client } from "@/lib/aws-clients";
 
 // ─── AWS Clients ──────────────────────────────────────────────────────────────
 
-const lambda = new LambdaClient({ region: process.env.AWS_REGION ?? "us-east-1" });
-const dynamo  = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
-const s3      = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
+const lambda = getLambdaClient();
+const dynamo = getDynamoClient();
+const s3     = getS3Client();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

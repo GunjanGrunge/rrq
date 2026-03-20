@@ -57,8 +57,9 @@ export async function writeEpisode(
     signalType: "HIGH_CONFIDENCE_SIGNAL" | "STANDARD_LESSON" | "WARNING" | "CORRECTION";
   }
 ): Promise<string> {
-  const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
-  const s3 = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const { getS3Client } = await import("@/lib/aws-clients");
+  const s3 = getS3Client();
 
   const now = new Date();
   const year = now.getFullYear();

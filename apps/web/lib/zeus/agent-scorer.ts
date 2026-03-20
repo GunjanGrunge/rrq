@@ -1,20 +1,15 @@
 import {
-  DynamoDBClient,
   UpdateItemCommand,
   GetItemCommand,
   ScanCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { getDynamoClient, getBedrockClient } from "@/lib/aws-clients";
 import type { AgentPerformanceScore } from "./types";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
-const bedrock = new BedrockRuntimeClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
+const db = getDynamoClient();
+const bedrock = getBedrockClient();
 
 const SCORED_AGENTS = ["rex", "regum", "qeon"] as const;
 type ScoredAgent = (typeof SCORED_AGENTS)[number];

@@ -1,5 +1,4 @@
 import {
-  DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
   UpdateItemCommand,
@@ -7,8 +6,9 @@ import {
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/lib-dynamodb";
 import { createHash } from "crypto";
+import { getDynamoClient } from "@/lib/aws-clients";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const db = getDynamoClient();
 
 // ─── Source weights ───────────────────────────────────────────────────────────
 

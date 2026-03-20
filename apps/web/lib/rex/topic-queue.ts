@@ -1,12 +1,12 @@
 import {
-  DynamoDBClient,
   PutItemCommand,
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const db = getDynamoClient();
 
 export interface TopicQueueEntry {
   userId: string;

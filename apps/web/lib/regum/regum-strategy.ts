@@ -1,7 +1,6 @@
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { getBedrockClient } from "@/lib/aws-clients";
+import { getNumericPolicy, getStringArrayPolicy } from "@/lib/policies/get-policy";
 
 import { queryAgentMemory } from "@/lib/memory/kb-query";
 import { setAgentStatus } from "@/lib/memory/agent-status";
@@ -37,9 +36,7 @@ import type {
   RegumAnalyticsReview,
 } from "./types";
 
-const bedrock = new BedrockRuntimeClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
+const bedrock = getBedrockClient();
 
 const ANGLE_MULTIPLIERS: Record<string, number> = {
   curiosity_gap: 1.5,
@@ -449,7 +446,7 @@ Maximum 3 greenlights per run.`;
       // Notify Qeon via agent-messages
       await sendAgentMessage({
         from: "regum",
-        to: "qeon",
+        recipientAgent: "qeon",
         type: "STRATEGY_BRIEF",
         priority: brief.urgency === "now" ? "URGENT" : brief.urgency === "today" ? "HIGH" : "MEDIUM",
         requiresResponse: false,

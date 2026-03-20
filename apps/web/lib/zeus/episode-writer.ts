@@ -1,8 +1,9 @@
-import { S3Client, PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { getS3Client } from "@/lib/aws-clients";
 import { syncKnowledgeBase } from "@/lib/memory/kb-query";
 import type { ZeusEpisode } from "./types";
 
-const s3 = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
+const s3 = getS3Client();
 const MEMORY_BUCKET = process.env.RRQ_MEMORY_BUCKET ?? "rrq-memory";
 
 // ─── Write an episode to S3 + trigger Bedrock KB sync ────────────────────────

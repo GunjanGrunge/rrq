@@ -3,11 +3,13 @@ name: unreal-ad
 description: >
   Unreal Assistant Director (Unreal AD) is a non-roster execution layer that
   helps Muse render simulation-based video using Unreal Engine. Muse remains
-  the creative director — Unreal AD handles all technical complexity: Blueprint
-  parameterisation, asset catalog lookup, TripoSR 3D generation, EC2 render
-  job management, and scene assembly. Unreal AD is a tool Muse uses, not a
-  standalone agent. Think of it as Claude Code for Unreal Engine — it takes
-  Muse's scene plan JSON and executes it deterministically.
+  the creative director and decides when Unreal is the right tool. UA Agent is
+  the Unreal specialist — handles asset sourcing from user's downloaded
+  libraries + external APIs, 3D asset prep, compatibility conversion, scene
+  graph generation, and capability gating (manifest vs AMI rebuild). Unreal AD
+  uses a C++ Commandlet (not Blueprint) for headless rendering — a compiled
+  generic scene assembler that reads UnrealScenePlan JSON at runtime. The
+  commandlet code stays fixed; only the scene data changes per job.
 ---
 
 # Unreal Assistant Director (Unreal AD)
@@ -18,13 +20,36 @@ Unreal AD is not on the agent roster. It has no DynamoDB agent-status entry.
 It does not receive mission briefings. It does not write lessons.
 
 It is an execution layer — exactly how Claude Code is to Claude. Muse directs.
-Unreal AD executes. Muse's scene plan JSON is the input. Rendered MP4 segments
-are the output.
+UA Agent specialises. Unreal AD executes. Muse's scene plan JSON is the input.
+Rendered MP4 segments are the output.
 
-**Muse is responsible for creative decisions.**
-**Unreal AD is responsible for technical execution.**
+**Muse is responsible for creative decisions — including when to invoke Unreal.**
+**UA Agent is responsible for asset sourcing, compatibility, and capability gating.**
+**Unreal AD (the EC2 commandlet) is responsible for deterministic rendering.**
 
-Unreal AD never makes content decisions. If an asset is missing and
+### The Three-Layer Model
+
+```
+Muse (director)
+  Decides: use Unreal? → yes, if quality/complexity warrants simulation
+  Generates: UnrealScenePlan JSON
+  Aware of: what the commandlet can do generically (no need to know C++ details)
+
+UA Agent (Unreal specialist — Lambda, runs before EC2 launches)
+  Sourcing: user's downloaded asset libraries + external asset API calls
+  Conversion: FBX/GLB/USD → Unreal-compatible .uasset
+  ECS Fargate: heavy asset processing (meshes > 500MB, bulk conversion batches)
+  Capability gate: does this scene need a new engine-level subsystem?
+    → NO  → generate UnrealScenePlan JSON manifest, send to commandlet
+    → YES → trigger AMI rebuild automatically, pipeline proceeds after
+
+Unreal AD commandlet (EC2 g5.2xlarge — C++ Commandlet, not Blueprint)
+  Receives: UnrealScenePlan JSON
+  Executes: generic scene assembly (spawn, place, material, light, camera, render)
+  Knows nothing about content — geometry is just data to it
+```
+
+UA Agent never makes content decisions. If an asset is missing and
 substitution judgment is required, it escalates to Muse — it does not guess.
 
 ---
@@ -224,6 +249,57 @@ interface HUDOverlay {
 
 ---
 
+## UA Agent — Asset Sourcing
+
+UA Agent runs in Lambda before any EC2 instance launches. It is the bridge
+between Muse's scene plan and the Unreal commandlet.
+
+### Asset Source Priority
+
+UA Agent resolves assets in this order:
+
+1. **Existing catalog match** (semantic search — fastest path, < 500ms)
+2. **User's downloaded asset libraries** — user pushes downloaded Fab.com /
+   Sketchfab / KitBash3D packs to `s3://rrq-unreal-assets/user-library/`.
+   UA Agent indexes these at upload time. Always prefer owned assets.
+3. **External asset API calls** — UA Agent calls Fab.com API, Sketchfab API,
+   Smithsonian 3D API, NASA 3D API for matches. Free/CC-licensed only.
+   Downloads, converts, catalogs — asset is owned forever after first use.
+4. **TripoSR generation** — when Muse approves GENERATE for a scene gap.
+   No external API — generated from text prompt.
+5. **Primitive fallback** — sphere/cylinder/plane with material shader.
+
+### Asset Conversion Pipeline
+
+User libraries contain assets in multiple formats (FBX, GLB, USD, OBJ).
+UA Agent handles all conversion:
+
+```
+User asset lands in s3://rrq-unreal-assets/user-library/{filename}
+  → UA Agent detects new upload (S3 event trigger)
+  → File < 500MB: Lambda conversion (FBX/GLB → .uasset via Unreal commandlet)
+  → File >= 500MB or batch: ECS Fargate asset-converter task
+  → Converted .uasset stored in s3://rrq-unreal-assets/{assetId}/
+  → DynamoDB asset-catalog record written
+  → Bedrock Titan v2 embedding generated (semantic search ready)
+  → Oracle Domain 12 classifies contentDomains
+  → Asset immediately available for future scenes
+```
+
+UA Agent also validates Unreal compatibility before storing — incompatible
+assets (wrong LOD, unsupported shader type) are flagged in the catalog with
+`unrealCompatible: false` and never used in renders.
+
+### CloudWatch Monitoring
+
+UA Agent emits CloudWatch metrics throughout:
+- Asset resolution time (catalog hit vs API fetch vs generation)
+- Conversion success/failure rate per format
+- ECS Fargate task duration + memory
+- Catalog miss rate by contentDomain (feeds Oracle Domain 12 gap analysis)
+
+---
+
 ## Asset Catalog
 
 ### Schema
@@ -345,37 +421,143 @@ never blocks production.
 
 ## AWS Architecture
 
+### C++ Commandlet — Why Not Blueprint
+
+Blueprint headless rendering requires booting the full Unreal editor, loading
+a level, and triggering Blueprint logic via command line flags or a wrapper.
+That is heavy — boot time matters a lot on a cold-started spot instance.
+
+A C++ Commandlet (`UCommandlet` subclass) registers with a minimal subsystem
+set. It boots in seconds. It has better error handling and easier debugging.
+Unreal skips all editor subsystems it doesn't need.
+
+**The commandlet is a generic scene assembler:**
+- Import any FBX/USD mesh and place it at any position/rotation/scale
+- Apply any material by path reference
+- Set up any light (type, position, intensity, color, temperature)
+- Move any actor along a keyframed path
+- Configure any camera (FOV, aperture, position, motion blur, DoF)
+- Render any resolution/quality pass to MP4
+
+Muse can change absolutely everything — assets, lighting, layout, camera —
+just by generating a different JSON manifest. The commandlet doesn't care if
+the FBX is a neuron, a tree, or a racing car. Geometry is data.
+
+**New engine-level capabilities = AMI rebuild (automatic, no user prompt).**
+
+Engine-level means touching a different Unreal subsystem:
+- MetaHuman + animations → AnimBlueprint subsystem
+- Niagara particle systems → VFX subsystem
+- Sequencer cinematic camera → Sequencer subsystem
+- Procedural road generation → PCG subsystem
+- Cloth simulations → Chaos physics subsystem
+
+UA Agent is the capability gatekeeper. Before launching EC2:
+- Can the current commandlet handle this scene? → generate JSON, proceed
+- Does it need a new subsystem? → trigger AMI rebuild, then proceed automatically
+
 ### EC2 Unreal Render Instance
 
 ```
-Instance type: g5.2xlarge (NVIDIA A10G, 24GB VRAM — Unreal needs VRAM for scene)
-Billing:       Spot — per render job
-AMI size:      ~80-100GB (Unreal Engine 5 headless + project + assets preloaded)
+Instance type: g5.2xlarge (NVIDIA A10G, 24GB VRAM)
+Billing:       Spot — 2 attempts, then on-demand fallback (2-strike rule)
+               Spot fail #1 → retry spot once
+               Spot fail #2 → launch on-demand, pipeline continues uninterrupted
+AMI size:      ~80-100GB (Unreal Engine 5 headless + C++ Commandlet + assets)
 Self-terminate: yes — instance writes "RENDER_COMPLETE" to DynamoDB then halts
 ```
 
 **AMI contents:**
 - Ubuntu 22.04
 - NVIDIA driver (CUDA 12)
-- Unreal Engine 5 (headless mode, no display manager)
-- RRQ Unreal Project (all Blueprints, materials, studio scene pre-loaded)
-- Python 3.11 (Unreal Python API)
-- Asset manifest (DynamoDB sync on boot — downloads any assets added since last AMI build)
+- Unreal Engine 5 (headless mode — no display manager, no editor GUI)
+- RRQ C++ Commandlet (compiled, registered as `RRQSceneCommandlet`)
+- RRQ Unreal Project (materials, studio scene, base meshes pre-loaded)
+- Asset manifest (DynamoDB delta sync on boot — downloads any new assets since AMI build)
 
 **Boot sequence:**
-1. Instance starts, reads job from DynamoDB `unreal-render-jobs` table
-2. Runs `asset-sync.py` — checks catalog for any assets added since AMI build,
-   downloads deltas from S3 (usually < 30s for new assets)
-3. Runs `render-job.py` — reads `UnrealScenePlan` JSON, parameterises Blueprints,
-   fires Unreal headless render
-4. Uploads MP4 to S3
-5. Writes RENDER_COMPLETE to DynamoDB
-6. Calls `aws ec2 terminate-instances` on itself
+1. Instance starts, reads job from DynamoDB `unreal-render-jobs`
+2. Runs `asset-sync.py` — downloads delta assets from S3 (< 30s typical)
+3. Runs Unreal headless commandlet:
+   ```
+   UnrealEditor-Cmd RRQProject.uproject -run=RRQSceneCommandlet \
+     -ScenePlan=/tmp/scene_plan.json \
+     -OutputPath=/tmp/render_output.mp4
+   ```
+4. Commandlet reads `UnrealScenePlan` JSON, assembles scene, renders
+5. Uploads MP4 to S3
+6. Writes RENDER_COMPLETE to DynamoDB
+7. Calls `aws ec2 terminate-instances` on itself
 
-**Render time estimate:** ~3-8 minutes per beat (depending on scene complexity,
-physics simulation count, particle systems). Complex beats (full physics
-collapse + particle + camera animation) approach 8 min. Static HUD-only beats
+**Render time estimate:** ~3-8 minutes per beat. Complex beats (rigid-body
+physics + particles + camera animation) approach 8 min. Static HUD-only beats
 take < 2 min.
+
+### ECS Fargate — Heavy Asset Processing
+
+When UA Agent receives assets that exceed Lambda limits (meshes > 500MB,
+bulk conversion batches, complex FBX rigs), it dispatches to ECS Fargate
+instead of processing inline:
+
+```
+UA Agent detects heavy asset
+  → Writes task to unreal-asset-requests with type="fargate-convert"
+  → Triggers Fargate task: asset-converter container
+  → Container: FBX/GLB → .uasset conversion + validation + embedding generation
+  → CloudWatch monitoring throughout (task timeout, memory, CPU)
+  → Output written to s3://rrq-unreal-assets/{assetId}/
+  → DynamoDB asset-catalog record written
+  → UA Agent resumes scene graph generation with new assetId
+```
+
+Fargate is also used for bulk library imports when the user pushes a new
+batch of downloaded assets to S3 — UA Agent doesn't block on these.
+
+### Spot → On-Demand Fallback (2-Strike Rule)
+
+```typescript
+async function launchUnrealRenderInstance(jobId: string): Promise<string> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const instanceId = await launchSpotInstance(jobId);
+    if (instanceId) return instanceId;
+    // Spot failed — log to CloudWatch, try again
+    await logCloudWatch(`Spot attempt ${attempt} failed for job ${jobId}`);
+  }
+  // Both spot attempts failed — fall back to on-demand
+  await logCloudWatch(`Falling back to on-demand for job ${jobId}`);
+  return await launchOnDemandInstance(jobId);
+}
+```
+
+On-demand costs ~3× more per hour but guarantees capacity. The pipeline
+never tells the user which billing mode was used — it just renders.
+
+### AMI Rebuild — Automatic (UA Agent Triggered)
+
+UA Agent detects a new subsystem is required for the requested scene.
+No user prompt. No wait. Rebuild fires and pipeline proceeds after.
+
+```
+UA Agent flags: scene requires [Niagara particle subsystem]
+  → Checks DynamoDB system-config: is a newer AMI already being built?
+    → YES → wait for AMI build completion, then proceed
+    → NO  → triggers unrealAmiRebuildWorkflow immediately:
+        1. Launches EC2 builder instance (on-demand, m5.4xlarge)
+        2. Installs new capability module (Niagara plugin + headers)
+        3. Recompiles RRQSceneCommandlet with new subsystem registered
+        4. Runs validation render (standard test scene)
+        5. Creates new AMI → updates UNREAL_AMI_ID env var
+        6. Old AMI kept for 14 days (rollback)
+  → After AMI ready → EC2 render instance launches with new AMI
+  → Render proceeds normally
+```
+
+Build time: ~60-90 min (EC2 compile + Unreal cook). Jobs queued during this
+window wait in DynamoDB with status `WAITING_FOR_AMI`. Inngest polls and
+resumes them once the new AMI is ready.
+
+Oracle Domain 12 also triggers AMI rebuild for new Unreal Engine versions —
+same pipeline, Zeus logs the version bump after completion.
 
 ### TripoSR Lambda
 
@@ -395,10 +577,11 @@ s3://rrq-unreal-assets/
     thumbnail.jpg           — low-res preview for Oracle UI
     embedding.json          — Titan v2 vector
     metadata.json           — mirrors DynamoDB record
-  blueprints/
-    {blueprintId}/
-      BP_{Name}.uasset
-      params.json           — documented Blueprint parameters
+  user-library/             — user's downloaded asset packs (Fab, Sketchfab, KitBash3D, etc.)
+    {filename}              — raw uploads — UA Agent indexes + converts on S3 event trigger
+  commandlet/
+    RRQSceneCommandlet.cpp  — C++ source (version controlled)
+    build-manifest.json     — subsystem capabilities in current compiled version
   studio/
     rrq-default/            — RRQ Studios default scene files
     custom/{channelId}/     — user custom studio assets (logo, config)
@@ -446,34 +629,16 @@ Oracle Domain 12 runs on the standard Oracle Tuesday/Friday schedule.
 
 ### What It Updates
 
-- **Bedrock KB injection** — new Unreal API docs + Blueprint patterns injected
-  into the Unreal AD knowledge context
-- **Blueprint catalog** — new community Blueprint recommendations added to catalog
+- **Bedrock KB injection** — new Unreal API docs + Commandlet patterns injected
+  into the UA Agent knowledge context
+- **Commandlet capability catalog** — new subsystem capabilities documented as UA Agent
+  uses them (so future scenes can reference them correctly)
 - **Asset library auto-download** — free Fab.com assets matching active content
   domains downloaded and catalogued automatically (within storage budget)
-- **AMI rebuild flag** — if Unreal Engine minor/patch version available,
-  Oracle sets `unrealAmiRebuildRequired: true` in DynamoDB system-config
-  → Zeus notifies user → user approves → AMI rebuild pipeline fires
+- **AMI rebuild trigger** — if Unreal Engine minor/patch version available,
+  Oracle triggers `unrealAmiRebuildWorkflow` directly (same automatic path as UA Agent)
 
-### AMI Rebuild Pipeline
-
-AMI rebuild is expensive (60-90 min build time). Never automatic.
-
-```
-Oracle detects new Unreal version
-  → Writes oracle-updates record: "Unreal 5.x.x available — AMI rebuild recommended"
-  → Writes zeus-briefs record for morning briefing
-  → Zeus briefs user via THE LINE morning report
-  → User approves in Mission Control settings
-  → Inngest ami-rebuild-workflow fires:
-      1. Launches EC2 builder instance (on-demand, not spot)
-      2. Installs new Unreal Engine + dependencies
-      3. Imports all existing project assets
-      4. Runs validation render (standard test scene)
-      5. If validation passes → creates new AMI → updates env variable
-      6. Old AMI kept for 14 days (rollback window)
-      7. Zeus notified of completion
-```
+See AWS Architecture → AMI Rebuild Pipeline above for the full rebuild flow.
 
 ---
 
@@ -576,42 +741,108 @@ UNREAL_RENDER_TIMEOUT_MS=600000       # 10 minutes per beat
 
 ---
 
+## Environment Variables to Add (Additional)
+
+```bash
+# Unreal AD — EC2 + Fargate
+UNREAL_EC2_BUILDER_INSTANCE_TYPE=m5.4xlarge  # AMI rebuild builder (on-demand)
+UNREAL_ASSET_CONVERTER_CLUSTER=              # ECS Fargate cluster ARN
+UNREAL_ASSET_CONVERTER_TASK_DEF=             # ECS task definition ARN
+UNREAL_SPOT_MAX_ATTEMPTS=2                   # spot retry count before on-demand
+```
+
+---
+
 ## Implementation Checklist
 
 [ ] Read skills/muse/SKILL.md — understand MuseBlueprint schema before extending it
 [ ] Read skills/oracle/SKILL.md — understand Domain pattern before adding Domain 12
+
+### Types + Schema
 [ ] Add `unrealScenePlan?: UnrealScenePlan` to `ScriptSection` in pipeline.ts
 [ ] Add `renderEngine?: "tony" | "wan2" | "skyreels" | "unreal-ad"` to `ScriptSection`
-[ ] Create `lib/unreal/types.ts` — all interfaces from this skill (UnrealScenePlan, UnrealAssetRef, etc.)
-[ ] Create `lib/unreal/asset-catalog.ts` — lookupAsset(), addAsset(), searchByDomain()
+[ ] Create `lib/unreal/types.ts` — all interfaces: UnrealScenePlan, UnrealAssetRef, PhysicsDirective, etc.
+
+### UA Agent Lambda
+[ ] Create `lambdas/ua-agent/handler.ts` — UA Agent Lambda entry point
+[ ] Create `lambdas/ua-agent/asset-sourcer.ts` — resolveAsset() — catalog → user-library → external API → TripoSR
+[ ] Create `lambdas/ua-agent/capability-gate.ts` — canCommandletHandle() → true | { requiresSubsystem: string }
+[ ] Create `lambdas/ua-agent/asset-converter.ts` — convertAsset() — Lambda path (< 500MB)
+[ ] Create `lambdas/ua-agent/fargate-dispatcher.ts` — dispatchFargateConversion() — heavy asset path
+[ ] Create `lambdas/ua-agent/external-apis.ts` — fetchFabAsset(), fetchSketchfabAsset(), fetchNasaAsset()
+[ ] Add CloudWatch metric emission throughout UA Agent
+
+### Asset Catalog
+[ ] Create `lib/unreal/asset-catalog.ts` — lookupAsset(), addAsset(), searchByDomain(), indexUserLibrary()
 [ ] Create `lib/unreal/scene-gap-handler.ts` — handleAssetGap(), escalateToMuse()
-[ ] Create `lib/unreal/render-job.ts` — invokeUnrealRender(), pollRenderJob()
+
+### Render Job
+[ ] Create `lib/unreal/render-job.ts` — invokeUnrealRender(), launchUnrealRenderInstance()
+[ ] Implement 2-strike spot → on-demand fallback in launchUnrealRenderInstance()
 [ ] Create `lib/unreal/studio-config.ts` — getRRQDefaultStudio(), getUserStudio(), validateChannelLogo()
+
+### Lambda Client + Types
 [ ] Add `invokeUnrealRender()` to `@rrq/lambda-client`
+[ ] Add `invokeUAAgent()` to `@rrq/lambda-client`
 [ ] Add `UnrealRenderOutputType` to `@rrq/lambda-types`
+
+### Pipeline Integration
 [ ] Add Unreal beat handling to `runParallelMediaStep()` in `production-steps.ts`
 [ ] Add Unreal beat handling to `buildSegments()` in `segment-builder.ts`
 [ ] Add studio config UI to Settings page (logo upload, layout selection, name override)
+
+### DynamoDB Tables
 [ ] Create `unreal-render-jobs` DynamoDB table (PK: jobId, SK: beatId, GSI: status-createdAt)
 [ ] Create `unreal-asset-catalog` DynamoDB table (PK: assetId, 2× GSI)
 [ ] Create `unreal-asset-requests` DynamoDB table (PK: requestId, GSI: status-createdAt)
 [ ] Add all three tables to CLAUDE.md DynamoDB list
+[ ] Add `ami-build-in-progress` key to system-config DynamoDB table
+
+### AMI Rebuild Workflow
+[ ] Create Inngest `unrealAmiRebuildWorkflow` — UA Agent trigger + Oracle trigger
+[ ] Implement WAITING_FOR_AMI job queue — Inngest polls system-config, resumes jobs on AMI ready
+[ ] Add `unrealAmiRebuildWorkflow` to Inngest client registration
+
+### Oracle Domain 12
 [ ] Add Oracle Domain 12 section to skills/oracle/SKILL.md
-[ ] EC2 AMI build (separate ops task — not a code task):
-    [ ] Launch g5.2xlarge builder
-    [ ] Install Unreal Engine 5 headless
-    [ ] Install Python Unreal API
-    [ ] Build + validate RRQ Unreal Project (studio + Blueprint library)
-    [ ] Create AMI → set UNREAL_AMI_ID env variable
-[ ] TripoSR Lambda:
-    [ ] Package TripoSR model weights into Lambda layer or EFS mount
-    [ ] Handler: text prompt → .glb mesh → S3 upload → catalog write
-    [ ] Test: "crumbling concrete wall" → valid .glb asset
-[ ] AMI rebuild Inngest workflow (`unrealAmiRebuildWorkflow`)
+[ ] Implement Oracle Domain 12 runner — UE version check, Fab.com drops, catalog gaps, render perf log
+
+### EC2 AMI Build (ops task — not code)
+[ ] Launch g5.2xlarge builder instance (on-demand)
+[ ] Install Unreal Engine 5 (headless — no display manager)
+[ ] Write + compile `RRQSceneCommandlet` (C++ UCommandlet subclass)
+    - Registers with minimal subsystem set (skips editor subsystems)
+    - Reads UnrealScenePlan JSON from -ScenePlan= argument
+    - Generic handlers: SpawnMesh(), ApplyMaterial(), SetupLight(), MoveActor(), ConfigureCamera()
+    - Renders to MP4 via Movie Render Queue CLI
+[ ] Build + validate RRQ Unreal Project (studio scene + base material library)
+[ ] Run validation render (standard test scene — must pass before AMI create)
+[ ] Create AMI → set UNREAL_AMI_ID env variable
+
+### ECS Fargate Asset Converter
+[ ] Write Dockerfile: asset-converter (FBX/GLB/OBJ/USD → .uasset via Unreal commandlet)
+[ ] Push to ECR, create ECS task definition
+[ ] CloudWatch logging + alarms for failed tasks
+[ ] Test: large FBX (> 500MB) → successful .uasset in S3
+
+### TripoSR Lambda
+[ ] Package TripoSR model weights via EFS mount (not Lambda layer — too large)
+[ ] Handler: text prompt → .glb mesh → S3 upload → catalog write
+[ ] Test: "crumbling concrete wall" → valid .glb asset
+
+### End-to-End Tests
 [ ] Test: studio-screen beat → rendered MP4 with studio + presenter screen
 [ ] Test: studio-fullscreen-expand → dissolve transition → simulation → dissolve back
 [ ] Test: scene gap GENERATE path → TripoSR → asset added → render resumes
 [ ] Test: scene gap USE_CLOSEST path → HUD label overlay composited correctly
+[ ] Test: spot fails twice → on-demand launch → render completes
+[ ] Test: UA Agent detects new subsystem → AMI rebuild fires → job queued → resumes on AMI ready
+[ ] Test: user uploads FBX library → UA Agent indexes → asset appears in catalog
+[ ] Test: large FBX → ECS Fargate dispatch → conversion → catalog → render uses it
 [ ] Test: faceless mode → studio-screen beat → no presenter layer, studio + screen only
-[ ] Verify: Unreal AD never imports from lib/ads/ — execution layer only
-[ ] Verify: Unreal AD never makes content decisions without Muse approval
+
+### Verification
+[ ] Verify: UA Agent never makes content decisions without Muse approval
+[ ] Verify: commandlet code does not change per job — only scene JSON changes
+[ ] Verify: on-demand fallback is never surfaced to user in UI
+[ ] Verify: AMI rebuild does not block other pipeline steps — only Unreal beats wait

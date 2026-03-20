@@ -1,6 +1,7 @@
-import { DynamoDBClient, UpdateItemCommand, GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { UpdateItemCommand, GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 
-const dynamo = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const dynamo = getDynamoClient();
 
 export type AgentStatusValue = "IDLE" | "RUNNING" | "STUCK" | "ERROR" | "DISABLED";
 
@@ -9,19 +10,24 @@ export async function setAgentStatus(
   status: AgentStatusValue,
   detail?: string
 ): Promise<void> {
-  await dynamo.send(
-    new UpdateItemCommand({
-      TableName: "agent-status",
-      Key: { agentId: { S: agentId } },
-      UpdateExpression: "SET #s = :s, updatedAt = :t" + (detail ? ", statusDetail = :d" : ""),
-      ExpressionAttributeNames: { "#s": "status" },
-      ExpressionAttributeValues: {
-        ":s": { S: status },
-        ":t": { S: new Date().toISOString() },
-        ...(detail ? { ":d": { S: detail } } : {}),
-      },
-    })
-  );
+  try {
+    await dynamo.send(
+      new UpdateItemCommand({
+        TableName: "agent-status",
+        Key: { agentId: { S: agentId } },
+        UpdateExpression: "SET #s = :s, updatedAt = :t" + (detail ? ", statusDetail = :d" : ""),
+        ExpressionAttributeNames: { "#s": "status" },
+        ExpressionAttributeValues: {
+          ":s": { S: status },
+          ":t": { S: new Date().toISOString() },
+          ...(detail ? { ":d": { S: detail } } : {}),
+        },
+      })
+    );
+  } catch (err) {
+    console.error(`[agent-status:${agentId}] Failed to set status=${status}:`, err);
+    // Don't throw — status updates are best-effort, don't block agent work
+  }
 }
 
 export async function getAgentStatus(agentId: string): Promise<AgentStatusValue> {

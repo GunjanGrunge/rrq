@@ -1,12 +1,12 @@
 import {
-  DynamoDBClient,
   PutItemCommand,
   ScanCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 import type { QeonBrief } from "./types";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const db = getDynamoClient();
 
 export async function writeQeonBrief(brief: QeonBrief): Promise<void> {
   await db.send(

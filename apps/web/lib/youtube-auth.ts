@@ -12,19 +12,17 @@
  *   hasYouTubeConnected(userId)           — boolean check whether tokens exist
  */
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 
 // ─── DynamoDB singleton ──────────────────────────────────────────────────────
 
-const dynamo = DynamoDBDocumentClient.from(
-  new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" })
-);
+const dynamo = DynamoDBDocumentClient.from(getDynamoClient());
 
 const TOKENS_TABLE = "user-tokens";
 

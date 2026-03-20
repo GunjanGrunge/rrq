@@ -1,8 +1,8 @@
 import {
-  BedrockRuntimeClient,
   InvokeModelCommand,
   InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { getBedrockClient } from "@/lib/aws-clients";
 
 // ─── Model IDs ──────────────────────────────────────────────────────────────
 
@@ -13,19 +13,6 @@ export const MODELS = {
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
-
-// ─── Client (singleton) ─────────────────────────────────────────────────────
-
-let client: BedrockRuntimeClient | null = null;
-
-function getClient(): BedrockRuntimeClient {
-  if (!client) {
-    client = new BedrockRuntimeClient({
-      region: process.env.AWS_REGION ?? "us-east-1",
-    });
-  }
-  return client;
-}
 
 // ─── Core call helper ───────────────────────────────────────────────────────
 
@@ -46,7 +33,7 @@ export async function callBedrock({
   temperature = 0.7,
   enableCache = true,
 }: BedrockCallOptions): Promise<string> {
-  const bedrock = getClient();
+  const bedrock = getBedrockClient();
 
   const now = new Date();
   const dateContext = `Today's date: ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} (${now.getFullYear()}). Always use the current year in titles, dates, and comparisons — never use a past year.`;
@@ -101,7 +88,7 @@ export async function callBedrock({
 export async function callBedrockStream(
   options: BedrockCallOptions
 ): Promise<ReadableStream<Uint8Array>> {
-  const bedrock = getClient();
+  const bedrock = getBedrockClient();
 
   const now = new Date();
   const dateContext = `Today's date: ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} (${now.getFullYear()}). Always use the current year in titles, dates, and comparisons — never use a past year.`;

@@ -1,13 +1,13 @@
 import {
-  DynamoDBClient,
   PutItemCommand,
   ScanCommand,
   GetItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/lib-dynamodb";
+import { getDynamoClient } from "@/lib/aws-clients";
 import type { PlaylistRecord } from "./types";
 
-const db = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" });
+const db = getDynamoClient();
 
 // Keyword-based niche → playlist mapping
 const NICHE_PLAYLIST_MAP: Record<string, string> = {

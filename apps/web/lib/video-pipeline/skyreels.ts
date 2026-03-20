@@ -12,24 +12,21 @@
  */
 
 import {
-  EC2Client,
   RunInstancesCommand,
   DescribeInstancesCommand,
   TerminateInstancesCommand,
 } from "@aws-sdk/client-ec2";
 import {
-  DynamoDBClient,
   GetItemCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
+import { getDynamoClient, getEC2Client } from "@/lib/aws-clients";
 import type { SkyReelsInputType, SkyReelsOutputType } from "@rrq/lambda-types";
 
 // ─── AWS Clients ────────────────────────────────────────────────────────────
 
-const ec2 = new EC2Client({ region: process.env.AWS_REGION ?? "us-east-1" });
-const dynamo = new DynamoDBClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
+const ec2 = getEC2Client();
+const dynamo = getDynamoClient();
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -280,8 +277,9 @@ async function pollUntilComplete(
 async function readSkyReelsManifest(
   jobId: string
 ): Promise<SkyReelsOutputType["segments"]> {
-  const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
-  const s3 = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { getS3Client } = await import("@/lib/aws-clients");
+  const s3 = getS3Client();
 
   const response = await s3.send(
     new GetObjectCommand({
