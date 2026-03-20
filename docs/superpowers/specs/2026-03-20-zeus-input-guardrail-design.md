@@ -4,6 +4,19 @@
 
 ---
 
+## Status Note
+
+> **The regex blocklist (Layer 1) defined in this spec has been superseded by the Murphy agent.**
+> Murphy replaces the static regex entirely with an intelligent, self-learning conversational safety layer.
+> See: `docs/superpowers/specs/2026-03-20-murphy-agent-design.md`
+>
+> Layers 2 (Haiku classifier) and 3 (Zeus system prompt guardrails) from this spec are still valid
+> and are incorporated into Murphy's decision logic. The strike/ban system, device fingerprinting,
+> DynamoDB tables (`user-strikes`, `banned-devices`, `user-fingerprints`), and Clerk ban mechanism
+> defined here remain in effect — Murphy calls `strike-manager.ts` on BLOCK_IMMEDIATE verdicts.
+
+---
+
 ## Problem
 
 Zeus is RRQ's content strategist. Without guardrails:
