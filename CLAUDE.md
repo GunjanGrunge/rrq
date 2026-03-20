@@ -44,6 +44,7 @@ Phase 4+:  NOT STARTED
 ```
 Zeus, Rex, Regum, Qeon, ARIA, SNIPER, MUSE, ORACLE, THEO, JASON, VERA, THE LINE,
 TONY (Phase 3.5 — code agent, MUSE's execution arm),
+MURPHY (Pre-Phase 9 — conversational safety intelligence, sits between user and Zeus on every chat),
 SENTINEL (Phase 4+ — infrastructure monitor, Autopilot Mode only),
 HARVY (Zeus's ROI financial intelligence engine — ad decision advisor, never executor)
 
@@ -135,6 +136,7 @@ posting. Facebook Ads integration spec'd for a future phase.
 | RRQ RETRO (7-day post-publish performance council + learning loop) | `skills/rrq-retro/SKILL.md` |
 | COLD START DEEP RESEARCH (24hr pre-launch sprint, index seeding) | `skills/cold-start-deep-research/SKILL.md` |
 | TONY (code agent — visuals, scrapers, reports, data) | `skills/tony/SKILL.md` |
+| MURPHY (conversational safety intelligence — 9-step guardrail, sits between user and Zeus) | `skills/murphy/SKILL.md` |
 | VERA (QA & Standards agent — audio, visual, standards gate) | `skills/vera/SKILL.md` |
 | Full RRQ faceless mode (What If + Conspiracy formats) | `skills/full-rrq/SKILL.md` |
 | Universal escalation protocol (agent stuck detection + SES notifications) | `skills/escalation/SKILL.md` |
@@ -398,6 +400,22 @@ DynamoDB — Working Memory (real-time, milliseconds)
                       Oracle injects new/updated policies here; agents read at runtime
                       All hardcoded thresholds (Harvy gates, Zeus guards, Rex scoring) live here
                       Analytics UI reads this table to display live agent policy state
+  murphy-sessions     Murphy sliding window — PK: sessionId (UUID), 24h TTL
+                      GSI: userId-lastEvaluatedAt — query all sessions for a user
+                      Max 20 messages FIFO, stores harmScore per message for arc scoring
+  murphy-patterns     Murphy pattern library — PK: patternId
+                      GSI 1: status-createdAt | GSI 2: category-status
+                      status: PENDING_ORACLE → ACTIVE | REJECTED | DEPRECATED
+                      createdFrom: SONNET_NOVEL | ZEUS_MANUAL | ORACLE_AUDIT
+                      arcContext: null = standalone trigger; set = requires qualifier tokens in arc
+  user-strikes        Strike counter — PK: userId, no TTL (permanent record)
+                      Fields: count, banned, lastStrikeAt, lastHarmfulMessage (100-char PII-stripped)
+                      3 strikes → perma-ban (Clerk publicMetadata.banned = true + banned-devices write)
+  banned-devices      Device ban list — PK: fingerprintHash (FingerprintJS hash)
+                      GSI: userId-bannedAt — look up all devices for a banned user
+                      Best-effort deterrent only — determined users can evade
+  user-fingerprints   Device → user mapping — PK: userId, 90d TTL
+                      Fields: fingerprintHash, lastSeenAt — upserted on every authenticated request
 
 Note: user identity, email, and plan tier stored on Clerk publicMetadata.
 All DynamoDB user tables use Clerk userId as partition key.
@@ -780,6 +798,8 @@ rrq-memory/
   agent-versions/{agentId}/{version}/system-prompt.txt
   agent-versions/{agentId}/{version}/policy-snapshot.json
   agent-versions/oracle/{version}/shadow-outputs/   (Oracle shadow mode — 14d proving window)
+  murphy/flagged-conversations/{patternId}.json     (Full session when novel pattern detected)
+  murphy/approved-patterns/{patternId}.json         (Oracle Domain 15 approved patterns + KB source)
 ```
 
 **Frontend:**
@@ -850,6 +870,10 @@ INNGEST_SIGNING_KEY=
 BEDROCK_KB_ID=
 BEDROCK_DS_ID=
 BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
+
+# Murphy Safety Agent — Separate KB from council index
+MURPHY_KB_ID=           # Bedrock KB ID for murphy-knowledge-base
+MURPHY_DS_ID=           # Bedrock data source ID for KB sync (Domain 15 triggers ingestion)
 
 # S3
 S3_BUCKET_NAME=content-factory-assets

@@ -1,13 +1,28 @@
 import type { ResearchOutput, ScriptOutput, SEOOutput, QualityGateOutput } from "@/lib/types/pipeline";
 
+export interface ResearchContext {
+  angle?: string;
+  niche?: string;
+  competitorGap?: string;
+  zeusMemory?: string;
+}
+
+export interface ScriptContext {
+  angle?: string;
+  niche?: string;
+  zeusMemory?: string;
+  museBlueprint?: unknown;
+}
+
 export async function runResearchStep(
   appUrl: string,
-  topic: string
+  topic: string,
+  ctx: ResearchContext = {}
 ): Promise<ResearchOutput> {
   const res = await fetch(`${appUrl}/api/pipeline/research`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic, duration: 10, tone: "informative" }),
+    body: JSON.stringify({ topic, duration: 10, tone: "informative", ...ctx }),
   });
   const data = await res.json();
   if (!data.success) throw new Error(data.error ?? "Research failed");
@@ -18,12 +33,13 @@ export async function runScriptStep(
   appUrl: string,
   researchOutput: ResearchOutput,
   duration: number,
-  tone: string
+  tone: string,
+  ctx: ScriptContext = {}
 ): Promise<ScriptOutput> {
   const res = await fetch(`${appUrl}/api/pipeline/script`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ researchOutput, duration, tone }),
+    body: JSON.stringify({ researchOutput, duration, tone, ...ctx }),
   });
   const data = await res.json();
   if (!data.success) throw new Error(data.error ?? "Script failed");

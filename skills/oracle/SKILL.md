@@ -1802,7 +1802,7 @@ PK: agentId
 SK: version  (e.g. "1.3.0")
 Fields:
   status              "pending" | "active" | "stable" | "rolled_back" | "archived"
-  changeType          "PROMPT_UPDATE" | "PACKAGE_UPDATE" | "POLICY_UPDATE" | "MODEL_UPDATE"
+  changeType          "PROMPT_UPDATE" | "PACKAGE_UPDATE" | "POLICY_UPDATE" | "MODEL_UPDATE" | "PATTERN_UPDATE"
   parentVersion       previous version this was bumped from
   activationTimestamp ISO timestamp when version went active
   rollbackTo          version to revert to if rollback triggered
@@ -2232,4 +2232,151 @@ lib/oracle/versioning/
 [ ] Test: Tier 1 constant read attempt from frontend → blocked, not exposed
 [ ] Verify: agentVersion coverage 100% before Domain 14 considered active
 [ ] Verify: no version state changes in agent-policies without Zeus zeusApproved flag
+```
+
+---
+
+## Domain 15 — MURPHY_PATTERN_AUDIT
+
+**Purpose:** Review Murphy's novel pattern drafts (status: PENDING_ORACLE), evaluate false positive rate against the agent-decision-log, and promote accurate patterns to ACTIVE. Keep the pattern library clean and high-precision.
+
+**Schedule:** Runs Tue/Fri (same cadence as Domain 14), triggered by the Oracle EventBridge cron.
+
+**Approval authority:** Oracle Domain 15 is the only path to promote a pattern from `PENDING_ORACLE` → `ACTIVE`. Zeus approval required for MAJOR changes only (core decision logic). Pattern additions are PATCH bumps — Oracle approves autonomously.
+
+---
+
+### Input Sources
+
+| Source | Query |
+|--------|-------|
+| `murphy-patterns` DynamoDB | `status = PENDING_ORACLE` (all pending drafts) |
+| `agent-decision-log` DynamoDB | All Murphy `DecisionEvent` entries referencing each candidate pattern's `patternId` |
+| `murphy-knowledge-base` Bedrock KB | Semantic context — similar past flagged conversations |
+| `s3://rrq-memory/murphy/flagged-conversations/` | Full session logs written when pattern was drafted |
+
+---
+
+### Evaluation Algorithm (per PENDING_ORACLE pattern)
+
+```
+1. Load pattern draft from murphy-patterns (PK: patternId)
+
+2. Load all DecisionEvents where trigger.patternId = patternId
+   (query agent-decision-log GSI: agentId-timestamp, filter agentId = "murphy")
+
+3. Classify each decision as TRUE_POSITIVE, FALSE_POSITIVE, or UNRESOLVED:
+   - TRUE_POSITIVE:  verdict was BLOCK_IMMEDIATE or ESCALATE_TO_ZEUS AND
+                     Zeus confirmed (ZEUS_ESCALATION_DECISION → WARN_USER or RETROACTIVE_BLOCK)
+                     OR verdict was BLOCK_IMMEDIATE and no appeal was filed
+   - FALSE_POSITIVE: verdict was BLOCK_IMMEDIATE or ESCALATE_TO_ZEUS AND
+                     Zeus decision = CONTINUE_MONITORING (Zeus cleared the pattern)
+                     OR user filed an appeal and was manually cleared
+   - UNRESOLVED:     escalation pending Zeus decision (within 6hr window) — exclude from rate
+
+4. Compute false_positive_rate = FALSE_POSITIVE_COUNT / (TRUE_POSITIVE + FALSE_POSITIVE)
+   If sample size < 5 triggered decisions: mark as INSUFFICIENT_SAMPLE → defer to next run
+
+5. Load flagged conversation JSON from S3 — read 3 representative samples
+   Pass to Haiku: "Does this pattern accurately describe the content that triggered it?
+   Rate false positive risk: LOW / MEDIUM / HIGH. One sentence reasoning."
+
+6. Combine quantitative rate + Haiku qualitative assessment:
+   - PROMOTE:  rate < 0.05 AND Haiku = LOW risk  (or rate < 0.10 AND Haiku = LOW)
+   - NARROW:   rate 0.05–0.20 OR Haiku = MEDIUM  → add arcContext qualifier tokens
+   - REJECT:   rate > 0.20 OR Haiku = HIGH
+   - DEFER:    INSUFFICIENT_SAMPLE — extend evaluation window, re-check next run
+
+7. Apply verdict:
+   PROMOTE → set murphy-patterns status: ACTIVE, bump Murphy agentVersion PATCH
+   NARROW  → update pattern.arcContext with qualifier tokens, then PROMOTE
+   REJECT  → set murphy-patterns status: REJECTED, write rejection reason to pattern record
+   DEFER   → leave status: PENDING_ORACLE, update pattern.deferCount += 1
+             If deferCount >= 4 (2 weeks of twice-weekly runs): auto-REJECT with reason STALE
+```
+
+---
+
+### arcContext Narrowing
+
+When a pattern is accurate in some contexts but produces false positives broadly, Oracle adds qualifier tokens to `arcContext` instead of rejecting:
+
+```typescript
+// Before narrowing (broad trigger — false positives in casual contexts)
+pattern.arcContext = null  // triggers on any message containing tokens
+
+// After Oracle narrowing (only fires in escalating conversations)
+pattern.arcContext = ["harm", "threat", "explicit", "violence", "danger"]
+// Pattern now only activates if session arc contains ≥1 qualifier tokens
+```
+
+Oracle writes the updated `arcContext` to `murphy-patterns` before setting status `ACTIVE`.
+
+---
+
+### Knowledge Base Sync
+
+After promoting a pattern to ACTIVE:
+
+1. Write pattern summary + sample conversation to `s3://rrq-memory/murphy/approved-patterns/{patternId}.json`
+2. Trigger `murphy-knowledge-base` Bedrock KB sync (same mechanism as the-line-council-index sync)
+   - `MURPHY_DS_ID` env var identifies the data source
+   - `StartIngestionJob` API call on the murphy KB data source
+3. Log sync trigger to oracle-knowledge-index DynamoDB (domain: "murphy-patterns", syncTriggeredAt)
+
+---
+
+### Version Bump
+
+Every promotion (PATCH) writes to `agent-version-registry`:
+
+```
+PK: "murphy"
+SK: new version string (e.g., "1.0.4")
+changeType: "PATTERN_UPDATE"
+sourceUpdateId: patternId
+changeNotes: "Promoted pattern {patternId} — {pattern.category} — FP rate {rate}"
+status: "ACTIVE"
+activationTimestamp: ISO now
+parentVersion: previous ACTIVE version SK
+zeusApproved: false  (PATCH = Oracle autonomy, no Zeus gate)
+```
+
+Rollback = set `status: DEPRECATED` on the pattern in `murphy-patterns`. No redeployment needed (Murphy reads patterns at evaluation time, not at deploy time).
+
+---
+
+### Output Written to DynamoDB
+
+| Table | Write |
+|-------|-------|
+| `murphy-patterns` | `status` updated (ACTIVE / REJECTED), `arcContext` updated if narrowed, `approvedAt` or `rejectedAt` timestamp, `oracleVerdictReason` |
+| `agent-version-registry` | New PATCH version entry (on every PROMOTE) |
+| `oracle-knowledge-index` | Domain 15 last run timestamp + patterns evaluated count + promoted count |
+| `oracle-updates` | Run summary — patterns reviewed, promoted, rejected, deferred |
+
+---
+
+### Oracle Domain 15 — Implementation Checklist
+
+```
+[ ] Add Domain 15 trigger to Oracle EventBridge cron handler (runs Tue/Fri)
+[ ] Create lib/oracle/domains/domain-15-murphy-pattern-audit.ts
+    - loadPendingPatterns()
+    - loadPatternDecisionEvents(patternId)
+    - classifyDecisions(events): { truePositive, falsePositive, unresolved }
+    - computeFalsePositiveRate(counts): number | "INSUFFICIENT_SAMPLE"
+    - sampleFlaggedConversations(patternId, count): ConversationSample[]
+    - haikuQualitativeAssessment(pattern, samples): "LOW" | "MEDIUM" | "HIGH"
+    - applyVerdict(patternId, verdict, arcContextAddition?)
+    - triggerKBSync()
+    - writeDomain15Report(results)
+[ ] Add MURPHY_KB_ID + MURPHY_DS_ID to env vars (Bedrock KB ingestion job)
+[ ] Test: 5+ TRUE_POSITIVE events → rate 0.0 → PROMOTE fires
+[ ] Test: 3 FALSE_POSITIVE / 7 total → rate 0.30 → REJECT fires
+[ ] Test: arcContext = null → rate 0.12 → NARROW fires → arcContext set → PROMOTE
+[ ] Test: deferCount = 4 → auto-REJECT STALE
+[ ] Test: PROMOTE writes PATCH version to agent-version-registry
+[ ] Test: KB sync triggers after PROMOTE
+[ ] Verify: oracle-knowledge-index updated after every Domain 15 run
 ```

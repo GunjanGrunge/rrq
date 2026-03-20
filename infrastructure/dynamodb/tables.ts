@@ -654,6 +654,78 @@ export const DYNAMO_TABLES: DynamoTableConfig[] = [
     description:
       "Centralized policy store — Oracle injects updated policies; agents read at runtime. All hardcoded thresholds live here.",
   },
+
+  // ─── Murphy safety sessions ───────────────────────────────────────────────
+  {
+    tableName: "murphy-sessions",
+    partitionKey: { name: "sessionId", type: "S" },
+    gsi: [
+      {
+        indexName:    "userId-lastEvaluatedAt",
+        partitionKey: { name: "userId", type: "S" },
+        sortKey:      { name: "lastEvaluatedAt", type: "S" },
+        projectionType: "ALL",
+      },
+    ],
+    ttlAttribute: "ttl",
+    billingMode:  "PAY_PER_REQUEST",
+    description:  "Murphy conversational arc tracking — sliding window of last 20 messages per session UUID. 24h TTL.",
+  },
+
+  // ─── Murphy safety patterns ───────────────────────────────────────────────
+  {
+    tableName: "murphy-patterns",
+    partitionKey: { name: "patternId", type: "S" },
+    gsi: [
+      {
+        indexName:    "status-createdAt",
+        partitionKey: { name: "status", type: "S" },
+        sortKey:      { name: "createdAt", type: "S" },
+        projectionType: "ALL",
+      },
+      {
+        indexName:    "category-status",
+        partitionKey: { name: "category", type: "S" },
+        sortKey:      { name: "status", type: "S" },
+        projectionType: "ALL",
+      },
+    ],
+    billingMode: "PAY_PER_REQUEST",
+    description: "Murphy safety patterns — PENDING_ORACLE awaits Oracle Domain 15 approval; ACTIVE used in real-time token-overlap lookup.",
+  },
+
+  // ─── User safety strikes ──────────────────────────────────────────────────
+  {
+    tableName:   "user-strikes",
+    partitionKey: { name: "userId", type: "S" },
+    billingMode: "PAY_PER_REQUEST",
+    description: "Zeus/Murphy strike counter — permanent, no TTL. Increments on HARMFUL verdict; 3 strikes = perma-ban.",
+  },
+
+  // ─── Banned devices ───────────────────────────────────────────────────────
+  {
+    tableName:   "banned-devices",
+    partitionKey: { name: "fingerprintHash", type: "S" },
+    gsi: [
+      {
+        indexName:    "userId-bannedAt",
+        partitionKey: { name: "userId", type: "S" },
+        sortKey:      { name: "bannedAt", type: "S" },
+        projectionType: "ALL",
+      },
+    ],
+    billingMode: "PAY_PER_REQUEST",
+    description: "FingerprintJS device ban list — checked on every Zeus chat session start (best-effort deterrent).",
+  },
+
+  // ─── User device fingerprints ─────────────────────────────────────────────
+  {
+    tableName:   "user-fingerprints",
+    partitionKey: { name: "userId", type: "S" },
+    ttlAttribute: "ttl",
+    billingMode:  "PAY_PER_REQUEST",
+    description:  "Latest FingerprintJS visitorId hash per user — 90d TTL session tracking.",
+  },
 ];
 
 /** Convenience lookup by table name */

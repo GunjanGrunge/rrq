@@ -6,6 +6,7 @@ export type UploadUrgency = "now" | "today" | "thisweek";
 
 export interface QeonBrief {
   briefId: string;
+  userId: string; // Clerk userId — required by upload step
   topicId: string;
   topic: string;
   niche: string;
