@@ -313,7 +313,7 @@ export function OverviewTab() {
             Comment Intelligence
           </div>
 
-          {!commentInsights ? (
+          {!commentInsights || !commentInsights.sentiment ? (
             <div className="font-dm-mono text-[10px] text-text-tertiary">No data yet.</div>
           ) : (
             <div className="space-y-3">

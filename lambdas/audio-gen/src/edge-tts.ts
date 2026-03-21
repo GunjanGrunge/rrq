@@ -1,54 +1,27 @@
-import { execFile } from "child_process";
-import { readFile, writeFile, unlink } from "fs/promises";
-import { randomUUID } from "crypto";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 /**
  * Edge-TTS fallback — unlimited free Microsoft TTS.
  *
- * Uses the edge-tts npm package which wraps Microsoft's Edge read-aloud API.
- * No API key required. Quality is lower than ElevenLabs but perfectly usable.
- *
- * Requires edge-tts CLI: `npx edge-tts --text "..." --voice "en-US-GuyNeural" --write-media /tmp/out.mp3`
+ * Uses msedge-tts library (pure Node.js, no CLI, no API key).
+ * Works in Lambda.
  */
 export async function generateEdgeTTS(
   text: string,
   voice: string
 ): Promise<Buffer> {
-  const tmpId = randomUUID();
-  const textPath = `/tmp/edge_tts_input_${tmpId}.txt`;
-  const outputPath = `/tmp/edge_tts_output_${tmpId}.mp3`;
+  const tts = new MsEdgeTTS();
+  await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
-  try {
-    // Write text to temp file to avoid shell escaping issues
-    await writeFile(textPath, text, "utf-8");
+  // toStream returns { audioStream, metadataStream } synchronously
+  const { audioStream } = tts.toStream(text);
 
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        "npx",
-        [
-          "edge-tts",
-          "--file", textPath,
-          "--voice", voice,
-          "--write-media", outputPath,
-        ],
-        { timeout: 120_000 },
-        (error, _stdout, stderr) => {
-          if (error) {
-            reject(
-              new Error(`Edge-TTS failed: ${error.message}. stderr: ${stderr}`)
-            );
-          } else {
-            resolve();
-          }
-        }
-      );
-    });
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    audioStream.on("end", resolve);
+    audioStream.on("error", reject);
+  });
 
-    const audioBuffer = await readFile(outputPath);
-    return audioBuffer;
-  } finally {
-    // Clean up temp files
-    await unlink(textPath).catch(() => {});
-    await unlink(outputPath).catch(() => {});
-  }
+  return Buffer.concat(chunks);
 }

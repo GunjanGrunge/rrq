@@ -31,6 +31,9 @@ export async function generateElevenLabs(
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (response.status === 402 || response.status === 401) {
+      throw new Error(`ELEVENLABS_PLAN_ERROR:${response.status}:${errorBody.slice(0, 200)}`);
+    }
     throw new Error(
       `ElevenLabs API error ${response.status}: ${errorBody.slice(0, 300)}`
     );

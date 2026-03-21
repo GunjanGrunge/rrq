@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
-import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 import type { ScriptOutput, ScriptSection } from "@/lib/types/pipeline";
 import { Mic, Upload, CheckCircle, Play, Pause, SkipForward } from "lucide-react";
 
@@ -512,52 +511,180 @@ function SelfVoicePage() {
   );
 }
 
-// ── Default export ────────────────────────────────────────────────────────────
+// ── AI Voiceover page ─────────────────────────────────────────────────────────
 
-export default function AudioPage() {
-  const { setStep, brief, stepStatuses, rerunStep } = usePipelineStore();
+const SUBTASK_LABELS = [
+  "Analyse script for tone and pacing cues",
+  "Select the best voice for your content style",
+  "Generate full voiceover with natural expression",
+  "Save audio for video production",
+];
+
+function AIVoicePage() {
+  const { outputs, jobId, stepStatuses, setStepOutput, setStepStatus, rerunStep } = usePipelineStore();
   const router = useRouter();
-  useEffect(() => { setStep(5); }, [setStep]);
+  const scriptOutput = outputs[2] as ScriptOutput | undefined;
 
-  if (stepStatuses[5] === "error") {
+  const [subTasksDone, setSubTasksDone] = useState<boolean[]>([false, false, false, false]);
+  const [statusLine, setStatusLine] = useState("Starting voiceover generation…");
+  const [error, setError] = useState<string | null>(null);
+  const hasRun = useRef(false);
+
+  useEffect(() => {
+    // If output already exists, the step completed — fix status if stuck and advance
+    if (outputs[5]) {
+      if (stepStatuses[5] !== "complete") {
+        setStepStatus(5, "complete");
+      }
+      router.push("/create/avatar");
+      return;
+    }
+    // Already running in another mount — do not fire again
+    if (stepStatuses[5] === "running") return;
+    if (hasRun.current || !scriptOutput || !jobId) return;
+    hasRun.current = true;
+
+    setStepStatus(5, "running");
+
+    (async () => {
+      try {
+        const res = await fetch("/api/pipeline/audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scriptOutput, jobId }),
+        });
+
+        if (!res.ok || !res.body) {
+          throw new Error(`Audio API returned ${res.status}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const event = JSON.parse(line.slice(6)) as {
+                type: string;
+                stageIndex?: number;
+                message?: string;
+                data?: unknown;
+                error?: string;
+              };
+
+              if (event.type === "status_line" && event.message) {
+                setStatusLine(event.message);
+              }
+              if (event.type === "stage_complete" && event.stageIndex !== undefined) {
+                setSubTasksDone((prev) => {
+                  const next = [...prev];
+                  next[event.stageIndex!] = true;
+                  return next;
+                });
+              }
+              if (event.type === "result" && event.data) {
+                setStepOutput(5, event.data);
+                setStepStatus(5, "complete");
+                router.push("/create/avatar");
+              }
+              if (event.type === "error") {
+                throw new Error(event.error ?? "Audio generation failed");
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof SyntaxError) continue;
+              throw parseErr;
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Audio generation failed";
+        setError(msg);
+        setStepStatus(5, "error");
+      }
+    })();
+  }, [scriptOutput, jobId, outputs, stepStatuses, setStepOutput, setStepStatus, router]);
+
+  if (error) {
     return (
       <div className="flex-1 p-8">
         <StepFailureCard
           stepNumber={5}
           stepLabel="Audio"
-          errorMessage="Voiceover generation failed. ElevenLabs or Edge-TTS may be temporarily unavailable."
+          errorMessage={error}
           showDownstreamWarning
           downstreamCount={STEP_DOWNSTREAM[5].length}
-          onRerunStep={() => { rerunStep(5); router.push("/create/audio"); }}
+          onRerunStep={() => { rerunStep(5); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false]); }}
         />
       </div>
     );
   }
 
+  return (
+    <div className="flex-1 flex flex-col p-8 max-w-2xl mx-auto w-full">
+      <div className="flex items-start gap-5 mb-8">
+        <div className="w-14 h-14 rounded-full bg-bg-surface border border-bg-border flex items-center justify-center shrink-0 text-text-tertiary">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+          </svg>
+        </div>
+        <div>
+          <h1 className="font-syne text-2xl font-bold text-text-primary mb-1">Generating Voiceover</h1>
+          <p className="font-lora text-sm text-text-secondary leading-relaxed">
+            Your script is being converted into a natural-sounding voiceover. Tone, pacing, and emotional emphasis are applied based on your brief.
+          </p>
+        </div>
+      </div>
+
+      {/* Live status */}
+      <div className="mb-6 px-4 py-3 bg-bg-surface border border-bg-border flex items-center gap-3">
+        <div className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse shrink-0" />
+        <span className="font-dm-mono text-xs text-text-secondary">{statusLine}</span>
+      </div>
+
+      {/* Sub-tasks */}
+      <div className="bg-bg-surface border border-bg-border p-5">
+        <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-4">
+          What happens here
+        </span>
+        <div className="space-y-3">
+          {SUBTASK_LABELS.map((label, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className={`w-4 h-4 rounded-sm border flex items-center justify-center shrink-0 ${subTasksDone[i] ? "border-accent-success bg-accent-success/10" : "border-bg-border-hover"}`}>
+                {subTasksDone[i] && (
+                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="text-accent-success">
+                    <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+              <span className={`font-lora text-sm ${subTasksDone[i] ? "text-text-tertiary line-through" : "text-text-secondary"}`}>
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Default export ────────────────────────────────────────────────────────────
+
+export default function AudioPage() {
+  const { setStep, brief, rerunStep } = usePipelineStore();
+  const router = useRouter();
+  useEffect(() => { setStep(5); }, [setStep]);
+
   if (brief?.voiceMode === "self") {
     return <SelfVoicePage />;
   }
 
-  return (
-    <PipelineStepWaiting
-      stepNumber={5}
-      title="Generating Voiceover"
-      description="Your script is being converted into a natural-sounding voiceover. Tone, pacing, and emotional emphasis are applied based on your brief and content structure."
-      icon={
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
-        </svg>
-      }
-      subTasks={[
-        { label: "Analyse script for tone and pacing cues", done: false },
-        { label: "Select the best voice for your content style", done: false },
-        { label: "Generate full voiceover with natural expression", done: false },
-        { label: "Apply fallback voice if needed", done: false },
-        { label: "Save audio for video production", done: false },
-      ]}
-      estimatedTime="~45 seconds"
-      prerequisiteStep={4}
-      prerequisiteLabel="Quality Review (Step 04)"
-    />
-  );
+  return <AIVoicePage />;
 }

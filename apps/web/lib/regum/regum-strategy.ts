@@ -385,7 +385,7 @@ Maximum 3 greenlights per run.`;
     try {
       const response = await bedrock.send(
         new InvokeModelCommand({
-          modelId: "anthropic.claude-sonnet-4-5",
+          modelId: "us.anthropic.claude-sonnet-4-6",
           contentType: "application/json",
           accept: "application/json",
           body: JSON.stringify({
@@ -519,7 +519,7 @@ Analyse and return exactly this JSON:
 
   const response = await bedrock.send(
     new InvokeModelCommand({
-      modelId: "anthropic.claude-sonnet-4-5",
+      modelId: "us.anthropic.claude-sonnet-4-6",
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({

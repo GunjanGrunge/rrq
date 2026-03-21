@@ -37,4 +37,12 @@ export type InngestEvents = {
   "agent/zeus.analytics": {
     data: { channelId: string };
   };
+  "cold-start/sprint.triggered": {
+    data: {
+      userId: string;
+      sprintId: string;
+      channelMode: "FULL_RRQ" | "MULTI_NICHE" | "SINGLE_NICHE";
+      selectedNiches: string[];
+    };
+  };
 };

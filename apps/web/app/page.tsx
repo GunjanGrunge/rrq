@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronRight, Loader2 } from "lucide-react";
 import { SiVercel, SiGithub, SiElevenlabs } from "react-icons/si";
+import { usePipelineStore } from "@/lib/pipeline-store";
 
 // ─── Full team roster ──────────────────────────────────────────────────────────
 const TEAM = [
@@ -153,6 +154,121 @@ function Reveal({ children, delay = 0, className = "" }: { children: React.React
   );
 }
 
+// ─── Step labels ───────────────────────────────────────────────────────────────
+const STEP_LABELS: Record<number, string> = {
+  1: "Research", 2: "Script", 3: "SEO", 4: "Quality Gate",
+  5: "Voiceover", 6: "Avatar", 7: "B-Roll", 8: "Images",
+  9: "Visuals", 10: "AV Sync", 11: "QA", 12: "Shorts", 13: "Upload",
+};
+
+const STEP_ROUTES: Record<number, string> = {
+  1: "/create/research", 2: "/create/script", 3: "/create/seo",
+  4: "/create/quality", 5: "/create/audio", 6: "/create/avatar",
+  7: "/create/broll", 8: "/create/images", 9: "/create/visuals",
+  10: "/create/av-sync", 11: "/create/qa", 12: "/create/shorts",
+  13: "/create/upload",
+};
+
+// ─── Pipeline resume banner ────────────────────────────────────────────────────
+function PipelineResumeBanner() {
+  const { isSignedIn } = useAuth();
+  const { activeJobId, currentStep, stepStatuses, brief } = usePipelineStore();
+  const [visible, setVisible] = useState(false);
+
+  // Determine if there's an in-progress job to show
+  const hasActiveJob = !!(activeJobId && currentStep > 0);
+  const completedSteps = hasActiveJob
+    ? Object.values(stepStatuses).filter((s) => s === "complete").length
+    : 0;
+  const isRunning = hasActiveJob && Object.values(stepStatuses).some((s) => s === "running");
+  const resumeRoute = hasActiveJob ? (STEP_ROUTES[currentStep] ?? "/create") : "/create";
+  const stepLabel = STEP_LABELS[currentStep] ?? "Pipeline";
+
+  useEffect(() => {
+    if (isSignedIn && hasActiveJob && currentStep > 0 && currentStep < 13) {
+      // Short delay so it feels intentional, not jarring
+      const t = setTimeout(() => setVisible(true), 400);
+      return () => clearTimeout(t);
+    }
+    setVisible(false);
+  }, [isSignedIn, hasActiveJob, currentStep]);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4"
+      style={{ animation: "revealUp 0.5s cubic-bezier(0.16,1,0.3,1) forwards" }}
+    >
+      <div className="bg-bg-elevated border border-bg-border shadow-2xl flex items-center gap-4 px-5 py-4">
+        {/* Status dot */}
+        <div className="shrink-0 flex items-center justify-center">
+          {isRunning ? (
+            <Loader2 size={14} className="text-accent-primary animate-spin" />
+          ) : (
+            <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse" />
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="font-dm-mono text-[9px] text-text-tertiary tracking-[0.3em] uppercase mb-0.5">
+            {isRunning ? "Pipeline running" : "Pipeline paused"}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-syne font-bold text-text-primary text-sm truncate">
+              Step {currentStep} — {stepLabel}
+            </span>
+            {brief?.topic && (
+              <span className="font-dm-mono text-[10px] text-text-tertiary truncate hidden sm:block">
+                · {brief.topic.slice(0, 40)}{brief.topic.length > 40 ? "…" : ""}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Progress pills */}
+        <div className="shrink-0 flex items-center gap-1">
+          {Array.from({ length: 13 }, (_, i) => {
+            const step = i + 1;
+            const status = stepStatuses[step];
+            return (
+              <div
+                key={step}
+                className={`h-1 w-3 ${
+                  status === "complete"
+                    ? "bg-accent-success"
+                    : status === "running"
+                    ? "bg-accent-primary animate-pulse"
+                    : status === "error"
+                    ? "bg-red-500"
+                    : "bg-bg-border"
+                }`}
+              />
+            );
+          })}
+        </div>
+
+        {/* CTA */}
+        <Link
+          href={resumeRoute}
+          className="shrink-0 flex items-center gap-1 bg-accent-primary hover:bg-accent-primary-hover text-text-inverse font-dm-mono text-[10px] tracking-widest uppercase px-4 py-2 transition-colors"
+        >
+          Resume
+          <ChevronRight size={12} />
+        </Link>
+      </div>
+
+      {/* Completed count */}
+      <div className="text-center mt-2">
+        <span className="font-dm-mono text-[9px] text-text-tertiary tracking-widest">
+          {completedSteps} of 13 steps complete
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ──────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
   const { isSignedIn } = useAuth();
@@ -215,6 +331,9 @@ export default function LandingPage() {
       >
         {/* Dot grid */}
         <div className="fixed inset-0 dot-grid opacity-20 pointer-events-none" />
+
+        {/* Pipeline resume banner — shows when user navigates away mid-pipeline */}
+        <PipelineResumeBanner />
 
         {/* ─── Nav ─────────────────────────────────────────────────────────── */}
         <nav className="relative z-20 flex items-center justify-between px-8 py-6 border-b border-bg-border/40">

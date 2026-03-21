@@ -6,7 +6,8 @@
     "apps/*",
     "packages/*",
     "lambdas/*",
-    "infrastructure"
+    "infrastructure",
+    "infra"
   ],
   "scripts": {
     "dev": "npm run --workspace=apps/web dev",

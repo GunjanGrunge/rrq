@@ -11,7 +11,7 @@ const bedrock = getBedrockClient();
 const QEON_OPUS_MODEL =
   "arn:aws:bedrock:us-east-1:751289209169:inference-profile/us.anthropic.claude-opus-4-6-v1";
 const QEON_HAIKU_MODEL =
-  "arn:aws:bedrock:us-east-1:751289209169:inference-profile/us.anthropic.claude-haiku-4-5-v1";
+  "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 // ─── Zeus Memory Injection ────────────────────────────────────────────────────
 

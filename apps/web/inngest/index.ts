@@ -1,4 +1,5 @@
 export { createVideoWorkflow } from "./create-video-workflow";
+export { coldStartWorkflow } from "./cold-start-workflow";
 export { qeonProduceWorkflow } from "./qeon-produce-workflow";
 export {
   rexScanWorkflow,

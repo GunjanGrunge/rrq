@@ -48,7 +48,7 @@ Return a JSON object with these exact keys:
 - endScreenSuggestion: string
 - cardSuggestions: [{ timestamp, text, linkTarget }]
 - visualAssets: [{ id, sectionId, type, insertAt, duration, animated, data, citations }]
-- voiceConfig: { gender, style, reasoning }
+- voiceConfig: { gender: "male"|"female", style: "analytical"|"enthusiastic"|"documentary"|"conversational", reasoning: string }
 - shortsScript?: { hook, body, onScreenText, visualNote, duration } (only if requested)
 
 Return ONLY the JSON object, no markdown fences.`;

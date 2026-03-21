@@ -145,7 +145,7 @@ Return ONLY a JSON array. No preamble. No markdown.`;
     try {
       const response = await bedrock.send(
         new InvokeModelCommand({
-          modelId: "anthropic.claude-opus-4-5",
+          modelId: "us.anthropic.claude-opus-4-6-v1",
           contentType: "application/json",
           accept: "application/json",
           body: JSON.stringify({

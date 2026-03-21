@@ -40,18 +40,25 @@ export default $config({
     };
 
     // ── Light Lambdas (zip deploy) ───────────────────────────────────
+    // handler paths are relative to the project root (one level above infra/)
 
     const audioGen = new sst.aws.Function("AudioGen", {
-      handler: "lambdas/audio-gen/src/handler.handler",
+      handler: "../lambdas/audio-gen/src/handler.handler",
       runtime: "nodejs20.x",
       timeout: "5 minutes",
       memory: "512 MB",
-      environment: sharedEnv,
+      environment: {
+        ...sharedEnv,
+        ELEVENLABS_KEY_1: process.env.ELEVENLABS_KEY_1 ?? "",
+        ELEVENLABS_KEY_2: process.env.ELEVENLABS_KEY_2 ?? "",
+        ELEVENLABS_KEY_3: process.env.ELEVENLABS_KEY_3 ?? "",
+        ELEVENLABS_KEY_4: process.env.ELEVENLABS_KEY_4 ?? "",
+      },
       link: [assetsBucket],
     });
 
     const shortsGen = new sst.aws.Function("ShortsGen", {
-      handler: "lambdas/shorts-gen/src/handler.handler",
+      handler: "../lambdas/shorts-gen/src/handler.handler",
       runtime: "nodejs20.x",
       timeout: "10 minutes",
       memory: "1024 MB",
@@ -60,7 +67,7 @@ export default $config({
     });
 
     const uploader = new sst.aws.Function("Uploader", {
-      handler: "lambdas/uploader/src/handler.handler",
+      handler: "../lambdas/uploader/src/handler.handler",
       runtime: "nodejs20.x",
       timeout: "5 minutes",
       memory: "512 MB",
@@ -69,19 +76,34 @@ export default $config({
     });
 
     // ── Heavy Lambdas (container deploy) ─────────────────────────────
+    // NOTE: These require Docker Desktop to be installed and running.
+    // Run: npm run infra:deploy:containers once Docker is available.
+
+    // ── Public Lambda Layers for native binaries ─────────────────────
+    // FFmpeg 7.0.2 static build — our own layer in us-east-1
+    // Binaries at: /opt/ffmpeg + /opt/ffprobe (zipped without /bin/ subdirectory)
+    const ffmpegLayerArn = "arn:aws:lambda:us-east-1:751289209169:layer:ffmpeg-static:1";
+
+    // @sparticuz/chromium packages its own binary — no separate layer needed
+    // (chromium binary is bundled with the npm package at node_modules level)
 
     const avSync = new sst.aws.Function("AvSync", {
-      handler: "lambdas/av-sync/src/handler.handler",
-      runtime: "container",
+      handler: "../lambdas/av-sync/src/handler.handler",
+      runtime: "nodejs20.x",
       timeout: "15 minutes",
       memory: "3008 MB",
-      environment: sharedEnv,
+      environment: {
+        ...sharedEnv,
+        FFMPEG_PATH: "/opt/ffmpeg",
+        FFPROBE_PATH: "/opt/ffprobe",
+      },
+      layers: [ffmpegLayerArn],
       link: [assetsBucket],
     });
 
     const researchVisual = new sst.aws.Function("ResearchVisual", {
-      handler: "lambdas/research-visual/src/handler.handler",
-      runtime: "container",
+      handler: "../lambdas/research-visual/src/handler.handler",
+      runtime: "nodejs20.x",
       timeout: "5 minutes",
       memory: "2048 MB",
       environment: sharedEnv,
@@ -89,27 +111,31 @@ export default $config({
     });
 
     const visualGen = new sst.aws.Function("VisualGen", {
-      handler: "lambdas/visual-gen/src/handler.handler",
-      runtime: "container",
-      timeout: "10 minutes",   // Remotion bundle on cold start needs extra headroom
-      memory: "3008 MB",       // Remotion webpack bundling requires extra memory
+      handler: "../lambdas/visual-gen/src/handler.handler",
+      runtime: "nodejs20.x",
+      timeout: "10 minutes",
+      memory: "3008 MB",
       environment: {
         ...sharedEnv,
-        REMOTION_BUNDLE_PATH: "/opt/remotion-bundle",  // pre-baked in Docker, skips bundle() on warm
+        FFMPEG_PATH: "/opt/ffmpeg",
+        FFPROBE_PATH: "/opt/ffprobe",
       },
+      layers: [ffmpegLayerArn],
       link: [assetsBucket],
+      // @remotion/bundler + @remotion/renderer use native binaries (.node files)
+      // that esbuild cannot inline — install them as-is into node_modules
+      nodejs: {
+        install: ["@remotion/bundler", "@remotion/renderer", "@rspack/binding"],
+      },
     });
 
     // ── TONY — Code Agent Lambda ──────────────────────────────────────
-    // Sandboxed JS execution engine called by MUSE, REX, REGUM, ORACLE.
-    // runtime: container — needs Puppeteer for scrape outputType tasks.
-    // IAM: S3 PutObject to jobs/{jobId}/tony/ only — no other AWS permissions.
 
     const codeAgent = new sst.aws.Function("CodeAgent", {
-      handler: "lambdas/code-agent/src/handler.handler",
-      runtime: "container",
-      timeout: "2 minutes",  // 3 attempts × (30s sandbox + 15s code-gen) + buffer
-      memory: "2048 MB",     // reflect loop: up to 3 child_process.fork() + Bedrock calls
+      handler: "../lambdas/code-agent/src/handler.handler",
+      runtime: "nodejs20.x",
+      timeout: "2 minutes",
+      memory: "2048 MB",
       environment: {
         ...sharedEnv,
         LAMBDA_CODE_AGENT: "rrq-code-agent",

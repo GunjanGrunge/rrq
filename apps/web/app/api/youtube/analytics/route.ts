@@ -189,13 +189,9 @@ async function fetchRevenueMetrics(
   const url = `https://youtubeanalytics.googleapis.com/v2/reports?${params.toString()}`;
   const res = await client.get(url);
 
-  // 403 = not monetised — return nulls, not an error
-  if (res.status === 403) {
-    return { estimatedRevenue: null, rpm: null, cpm: null };
-  }
+  // Non-2xx = not monetised or insufficient permissions — return nulls, not an error
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`youtubeAnalytics revenue query failed ${res.status}: ${body}`);
+    return { estimatedRevenue: null, rpm: null, cpm: null };
   }
 
   const data = await res.json() as {

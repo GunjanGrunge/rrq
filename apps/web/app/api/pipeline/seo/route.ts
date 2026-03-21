@@ -131,7 +131,7 @@ Generate the complete SEO metadata now.`;
         model: "sonnet",
         systemPrompt: SEO_SYSTEM_PROMPT,
         userPrompt,
-        maxTokens: 4096,
+        maxTokens: 6144,
         temperature: 0.6,
         enableCache: true,
       });

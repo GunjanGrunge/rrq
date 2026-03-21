@@ -43,13 +43,27 @@ export const handler: Handler = async (event) => {
       let audioBuffer: Buffer;
 
       if (voiceSelection.engine === "elevenlabs") {
-        audioBuffer = await generateElevenLabs(
-          cleanScript,
-          voiceSelection.voiceId,
-          voiceSelection.apiKey!
-        );
-        // Track usage
-        await incrementUsage(voiceSelection.accountId!, cleanScript.length);
+        try {
+          audioBuffer = await generateElevenLabs(
+            cleanScript,
+            voiceSelection.voiceId,
+            voiceSelection.apiKey!
+          );
+          await incrementUsage(voiceSelection.accountId!, cleanScript.length);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.startsWith("ELEVENLABS_PLAN_ERROR:")) {
+            console.warn(`[audio-gen][${input.jobId}] ElevenLabs plan limit — falling back to Edge-TTS`);
+            const edgeVoiceId = EDGE_TTS_VOICES[input.voiceConfig.gender]?.[input.voiceConfig.style]
+              ?? EDGE_TTS_VOICES.male.conversational;
+            audioBuffer = await generateEdgeTTS(cleanScript, edgeVoiceId);
+            // Switch all remaining sections to Edge-TTS
+            voiceSelection.engine = "edge-tts";
+            voiceSelection.voiceId = edgeVoiceId;
+          } else {
+            throw err;
+          }
+        }
       } else {
         audioBuffer = await generateEdgeTTS(cleanScript, voiceSelection.voiceId);
       }

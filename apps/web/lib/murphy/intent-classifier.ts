@@ -6,7 +6,7 @@ import type { SessionMessage } from "./types";
 const bedrock = getBedrockClient();
 
 // Sonnet 4.6 via Bedrock — prompt caching on system prompt
-const MURPHY_MODEL = "anthropic.claude-sonnet-4-5";
+const MURPHY_MODEL = "us.anthropic.claude-sonnet-4-6";
 
 const MURPHY_SYSTEM_PROMPT = `You are Murphy, a safety intelligence classifier for RRQ — an AI-powered YouTube content creation platform.
 

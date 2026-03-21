@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import AnalyticsNav from "@/components/analytics/AnalyticsNav";
+import SetTargetModal from "@/components/analytics/SetTargetModal";
 
 // ─── API response types ─────────────────────────────────────────────────────
 
@@ -273,6 +274,7 @@ type DateRange = "7d" | "28d" | "90d";
 
 export default function ChannelAnalyticsPage() {
   const [dateRange, setDateRange] = useState<DateRange>("28d");
+  const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [adsenseData, setAdsenseData] = useState<AdSenseData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -670,7 +672,20 @@ export default function ChannelAnalyticsPage() {
         {/* Monetisation mission progress */}
         {monetisation && (
           <div className="bg-bg-surface border border-bg-border rounded-xl p-5">
-            <SectionHeader title="Monetisation Mission" sub="YouTube Partner Program requirements" />
+            <div className="flex items-end justify-between mb-4">
+              <div>
+                <h2 className="font-syne font-bold text-base text-text-primary">Monetisation Mission</h2>
+                <p className="font-dm-mono text-[10px] text-text-tertiary tracking-wider mt-0.5">YouTube Partner Program requirements</p>
+              </div>
+              <button
+                onClick={() => setTargetModalOpen(true)}
+                className="flex items-center gap-1.5 font-dm-mono text-[10px] tracking-widest uppercase font-bold px-3 py-1.5 rounded-lg border transition-all duration-150 hover:bg-accent-primary/10"
+                style={{ borderColor: `${AMBER}50`, color: AMBER }}
+              >
+                <span style={{ fontSize: 11 }}>✦</span>
+                Set Target
+              </button>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 {
@@ -731,6 +746,11 @@ export default function ChannelAnalyticsPage() {
         )}
 
       </div>
+
+      <SetTargetModal
+        open={targetModalOpen}
+        onClose={() => setTargetModalOpen(false)}
+      />
     </div>
   );
 }

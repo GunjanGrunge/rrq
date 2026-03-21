@@ -6,8 +6,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { useUIStore } from "@/lib/ui-store";
-import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2, Home, BarChart3 } from "lucide-react";
+import { Zap, ChevronRight, ChevronDown, X, Inbox, Plus, Trash2, Home, BarChart3, Target, Telescope, MessageSquare } from "lucide-react";
+import ZeusChat from "@/components/zeus/ZeusChat";
 import StatusPill from "@/components/ui/StatusPill";
+import SetTargetModal from "@/components/analytics/SetTargetModal";
 import type { GateId, GateStatus, SessionState } from "@/lib/pipeline-store";
 
 const PIPELINE_STEPS = [
@@ -116,9 +118,10 @@ export default function Sidebar() {
     deleteSession,
   } = usePipelineStore();
 
-  const { sidebarOpen, closeSidebar } = useUIStore();
+  const { sidebarOpen, closeSidebar, openZeusChat } = useUIStore();
 
   const [stepsCollapsed, setStepsCollapsed] = useState(false);
+  const [targetModalOpen, setTargetModalOpen] = useState(false);
 
   const plan = (user?.publicMetadata?.plan as string) ?? "free";
   const directorMode = brief?.directorMode ?? false;
@@ -209,7 +212,7 @@ export default function Sidebar() {
       </div>
 
       {/* Zeus Command Center */}
-      <div className="px-3 py-2 border-b border-bg-border">
+      <div className="px-3 py-2 border-b border-bg-border space-y-1">
         <Link
           href="/zeus"
           className={`
@@ -223,6 +226,34 @@ export default function Sidebar() {
           <Zap size={14} />
           <span className="font-syne font-bold text-sm tracking-widest uppercase">
             GO RRQ
+          </span>
+        </Link>
+        <button
+          onClick={openZeusChat}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-md transition-all duration-200 text-text-secondary hover:text-accent-primary hover:bg-bg-elevated"
+        >
+          <MessageSquare size={14} />
+          <span className="font-syne font-bold text-xs tracking-widest uppercase">
+            Talk to Zeus
+          </span>
+        </button>
+      </div>
+
+      {/* Cold Start */}
+      <div className="px-3 py-2 border-b border-bg-border">
+        <Link
+          href="/cold-start"
+          className={`
+            flex items-center gap-2 px-3 py-2 rounded-md transition-all duration-200
+            ${pathname === "/cold-start"
+              ? "bg-accent-primary text-text-inverse"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
+            }
+          `}
+        >
+          <Telescope size={14} />
+          <span className="font-syne font-bold text-xs tracking-wider uppercase">
+            Cold Start
           </span>
         </Link>
       </div>
@@ -267,6 +298,19 @@ export default function Sidebar() {
             </span>
           </div>
         </Link>
+      </div>
+
+      {/* Set Target */}
+      <div className="px-3 py-2 border-b border-bg-border">
+        <button
+          onClick={() => setTargetModalOpen(true)}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-md transition-all duration-200 text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
+        >
+          <Target size={14} />
+          <span className="font-syne font-bold text-xs tracking-wider uppercase">
+            Set Target
+          </span>
+        </button>
       </div>
 
       {/* Sessions */}
@@ -498,6 +542,13 @@ export default function Sidebar() {
           </div>
         </>
       )}
+
+      <SetTargetModal
+        open={targetModalOpen}
+        onClose={() => setTargetModalOpen(false)}
+      />
+
+      <ZeusChat />
     </>
   );
 }

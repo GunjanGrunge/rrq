@@ -149,7 +149,52 @@ export async function callBedrockJSON<T>(
 
   // Extract JSON from the response — may be wrapped in markdown code fence
   const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = jsonMatch ? jsonMatch[1].trim() : raw.trim();
+  let jsonStr = jsonMatch ? jsonMatch[1].trim() : raw.trim();
 
-  return JSON.parse(jsonStr) as T;
+  // Strip any trailing text after the closing brace/bracket (model sometimes appends prose)
+  const lastBrace = Math.max(jsonStr.lastIndexOf("}"), jsonStr.lastIndexOf("]"));
+  if (lastBrace !== -1) {
+    jsonStr = jsonStr.slice(0, lastBrace + 1);
+  }
+
+  try {
+    return JSON.parse(jsonStr) as T;
+  } catch (firstErr) {
+    // Attempt lightweight repair: truncated JSON (hit maxTokens) — close open structures
+    const repaired = repairTruncatedJSON(jsonStr);
+    try {
+      return JSON.parse(repaired) as T;
+    } catch {
+      throw new Error(
+        `Bedrock returned malformed JSON: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`
+      );
+    }
+  }
+}
+
+/**
+ * Best-effort repair for JSON truncated mid-stream (e.g. maxTokens cut off).
+ * Closes any unclosed strings, arrays, and objects in reverse order.
+ */
+function repairTruncatedJSON(str: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escape = false;
+
+  for (const ch of str) {
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") stack.push("}");
+    else if (ch === "[") stack.push("]");
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+
+  // If we ended mid-string, close it first
+  let result = str;
+  if (inString) result += '"';
+
+  // Close all open structures in reverse
+  return result + stack.reverse().join("");
 }
