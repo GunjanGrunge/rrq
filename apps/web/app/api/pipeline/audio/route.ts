@@ -41,6 +41,10 @@ export async function POST(req: Request) {
     ? rawStyle as VoiceStyle
     : normaliseStyle(rawStyle);
 
+  // Normalise gender — LLM sometimes returns "Male", "MALE", or garbled variants
+  const rawGender = (scriptOutput.voiceConfig?.gender ?? "female").toLowerCase().trim();
+  const safeGender: "male" | "female" = rawGender.startsWith("m") ? "male" : "female";
+
   (async () => {
     try {
       emit({ type: "status_line", message: "Analysing script for tone and pacing cues…" });
@@ -61,6 +65,7 @@ export async function POST(req: Request) {
         voiceConfig: {
           ...scriptOutput.voiceConfig,
           style: safeStyle,
+          gender: safeGender,
         },
       });
 

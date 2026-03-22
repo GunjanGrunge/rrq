@@ -23,16 +23,24 @@ export async function POST(req: Request) {
 
       emit({ type: "status_line", message: "Rendering all visuals at full quality…" });
 
-      // Build asset list from script visualAssets (if any); fall back to empty for now
-      const assets = (scriptOutput?.visualAssets ?? []).map((a) => ({
-        id: a.id,
-        sectionId: a.sectionId,
-        type: a.type as Parameters<typeof invokeVisualGen>[0]["assets"][number]["type"],
-        duration: a.duration,
-        animated: a.animated,
-        data: a.data,
-        citations: a.citations,
-      }));
+      const VALID_VISUAL_TYPES = new Set([
+        "comparison-table", "bar-chart", "line-chart", "radar-chart",
+        "flow-diagram", "infographic-card", "personality-card",
+        "news-timeline", "stat-callout", "animated-infographic", "geo-map",
+      ]);
+
+      // Build asset list from script visualAssets — filter invalid types + coerce citations to strings
+      const assets = (scriptOutput?.visualAssets ?? [])
+        .filter((a) => VALID_VISUAL_TYPES.has(a.type))
+        .map((a) => ({
+          id: a.id,
+          sectionId: a.sectionId,
+          type: a.type as Parameters<typeof invokeVisualGen>[0]["assets"][number]["type"],
+          duration: a.duration,
+          animated: a.animated,
+          data: a.data,
+          citations: (a.citations ?? []).map((c) => String(c)),
+        }));
 
       const output = await invokeVisualGen({ jobId, assets });
 

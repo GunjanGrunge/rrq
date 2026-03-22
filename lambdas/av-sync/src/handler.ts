@@ -57,60 +57,113 @@ export const handler: Handler = async (event) => {
       const durationSec = (segment.endMs - segment.startMs) / 1000;
       const startSec = segment.startMs / 1000;
       const resolution = input.resolution === "1080p" ? "1920:1080" : "1280:720";
+      const resolutionLavfi = resolution.replace(":", "x"); // lavfi needs 1280x720 not 1280:720
 
       switch (segment.displayMode) {
         case "avatar-fullscreen": {
           const avatarPath = `${WORK_DIR}/avatar_${i}.mp4`;
           if (segment.avatarS3Key) {
             await downloadFromS3(segment.avatarS3Key, avatarPath);
+            // Avatar fills entire frame, audio from voiceover at correct offset
+            await runFFmpeg([
+              "-i", avatarPath,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-y", clipPath,
+            ]);
+          } else {
+            // No avatar available (EC2 not configured) — black video with audio
+            await runFFmpeg([
+              "-f", "lavfi", "-i", `color=c=black:size=${resolutionLavfi}:rate=25`,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-shortest",
+              "-y", clipPath,
+            ]);
           }
-          // Avatar fills entire frame, audio from voiceover at correct offset
-          await runFFmpeg([
-            "-i", avatarPath,
-            "-i", voiceoverPath,
-            "-ss", String(startSec),
-            "-t", String(durationSec),
-            "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
-            "-map", "0:v",
-            "-map", "1:a",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-y", clipPath,
-          ]);
           break;
         }
 
         case "broll-with-corner-avatar": {
           const brollPath = `${WORK_DIR}/broll_${i}.mp4`;
           const avatarPath = `${WORK_DIR}/avatar_${i}.mp4`;
-          if (segment.brollS3Key) {
-            await downloadFromS3(segment.brollS3Key, brollPath);
+          const hasBroll = !!segment.brollS3Key;
+          const hasAvatar = !!segment.avatarS3Key;
+          if (hasBroll) await downloadFromS3(segment.brollS3Key!, brollPath);
+          if (hasAvatar) await downloadFromS3(segment.avatarS3Key!, avatarPath);
+
+          if (hasBroll && hasAvatar) {
+            // B-roll full frame with avatar picture-in-picture (bottom-right 30%)
+            const avatarScale = input.resolution === "1080p" ? "480:270" : "384:216";
+            await runFFmpeg([
+              "-i", brollPath,
+              "-i", avatarPath,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-filter_complex",
+              `[0:v]scale=${resolution}[bg];[1:v]scale=${avatarScale}[avatar];[bg][avatar]overlay=W-w-20:H-h-20`,
+              "-map", "[v]",
+              "-map", "2:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-y", clipPath,
+            ]);
+          } else if (hasBroll) {
+            // No avatar — just b-roll with audio
+            await runFFmpeg([
+              "-i", brollPath,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-y", clipPath,
+            ]);
+          } else {
+            // Neither available — black video with audio
+            await runFFmpeg([
+              "-f", "lavfi", "-i", `color=c=black:size=${resolutionLavfi}:rate=25`,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-shortest",
+              "-y", clipPath,
+            ]);
           }
-          if (segment.avatarS3Key) {
-            await downloadFromS3(segment.avatarS3Key, avatarPath);
-          }
-          // B-roll full frame with avatar picture-in-picture (bottom-right 30%)
-          const avatarScale = input.resolution === "1080p" ? "480:270" : "384:216";
-          await runFFmpeg([
-            "-i", brollPath,
-            "-i", avatarPath,
-            "-i", voiceoverPath,
-            "-ss", String(startSec),
-            "-t", String(durationSec),
-            "-filter_complex",
-            `[0:v]scale=${resolution}[bg];[1:v]scale=${avatarScale}[avatar];[bg][avatar]overlay=W-w-20:H-h-20`,
-            "-map", "[v]",
-            "-map", "2:a",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-y", clipPath,
-          ]);
           break;
         }
 
@@ -118,22 +171,39 @@ export const handler: Handler = async (event) => {
           const brollPath = `${WORK_DIR}/broll_${i}.mp4`;
           if (segment.brollS3Key) {
             await downloadFromS3(segment.brollS3Key, brollPath);
+            await runFFmpeg([
+              "-i", brollPath,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-y", clipPath,
+            ]);
+          } else {
+            // No b-roll available — black video with audio
+            await runFFmpeg([
+              "-f", "lavfi", "-i", `color=c=black:size=${resolutionLavfi}:rate=25`,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-shortest",
+              "-y", clipPath,
+            ]);
           }
-          await runFFmpeg([
-            "-i", brollPath,
-            "-i", voiceoverPath,
-            "-ss", String(startSec),
-            "-t", String(durationSec),
-            "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
-            "-map", "0:v",
-            "-map", "1:a",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-y", clipPath,
-          ]);
           break;
         }
 
@@ -141,24 +211,41 @@ export const handler: Handler = async (event) => {
           const visualPath = `${WORK_DIR}/visual_${i}.png`;
           if (segment.visualS3Key) {
             await downloadFromS3(segment.visualS3Key, visualPath);
+            // Static image held for duration with audio
+            await runFFmpeg([
+              "-loop", "1",
+              "-i", visualPath,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
+              "-c:v", "libx264",
+              "-tune", "stillimage",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-shortest",
+              "-y", clipPath,
+            ]);
+          } else {
+            // No visual asset available — black video with audio
+            await runFFmpeg([
+              "-f", "lavfi", "-i", `color=c=black:size=${resolutionLavfi}:rate=25`,
+              "-i", voiceoverPath,
+              "-ss", String(startSec),
+              "-t", String(durationSec),
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-preset", "fast",
+              "-crf", "23",
+              "-c:a", "aac",
+              "-b:a", "128k",
+              "-shortest",
+              "-y", clipPath,
+            ]);
           }
-          // Static image held for duration with audio
-          await runFFmpeg([
-            "-loop", "1",
-            "-i", visualPath,
-            "-i", voiceoverPath,
-            "-ss", String(startSec),
-            "-t", String(durationSec),
-            "-vf", `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:-1:-1:color=black`,
-            "-c:v", "libx264",
-            "-tune", "stillimage",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-shortest",
-            "-y", clipPath,
-          ]);
           break;
         }
       }

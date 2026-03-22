@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
       const output = await invokeAvSync({
         jobId,
-        voiceoverS3Key: audioOutput?.voiceoverUrl ?? `jobs/${jobId}/voiceover.mp3`,
+        voiceoverS3Key: audioOutput?.voiceoverUrl ?? `jobs/${jobId}/audio/voiceover.mp3`,
         segments,
         subtitles: { srtContent },
         resolution: "720p",

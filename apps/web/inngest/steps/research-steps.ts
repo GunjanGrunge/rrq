@@ -14,6 +14,48 @@ export interface ScriptContext {
   museBlueprint?: unknown;
 }
 
+/**
+ * Consumes an SSE stream from a pipeline API route and extracts the final result.
+ * Pipeline routes emit: stage_complete events → then a final `type: "result"` event.
+ */
+async function consumeSSEResult<T>(res: Response, label: string): Promise<T> {
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${label} HTTP ${res.status}: ${text}`);
+  }
+  if (!res.body) throw new Error(`${label}: response body is null`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const raw = line.slice(6).trim();
+      if (!raw) continue;
+      let payload: { type: string; data?: T; error?: string };
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (payload.type === "result" && payload.data !== undefined) {
+        return payload.data;
+      }
+      if (payload.type === "error") {
+        throw new Error(`${label} error: ${payload.error ?? "unknown"}`);
+      }
+    }
+  }
+  throw new Error(`${label}: SSE stream ended without a result event`);
+}
+
 export async function runResearchStep(
   appUrl: string,
   topic: string,
@@ -24,9 +66,7 @@ export async function runResearchStep(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ topic, duration: 10, tone: "informative", ...ctx }),
   });
-  const data = await res.json();
-  if (!data.success) throw new Error(data.error ?? "Research failed");
-  return data.data;
+  return consumeSSEResult<ResearchOutput>(res, "Research");
 }
 
 export async function runScriptStep(
@@ -41,9 +81,7 @@ export async function runScriptStep(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ researchOutput, duration, tone, ...ctx }),
   });
-  const data = await res.json();
-  if (!data.success) throw new Error(data.error ?? "Script failed");
-  return data.data;
+  return consumeSSEResult<ScriptOutput>(res, "Script");
 }
 
 export async function runSeoStep(
@@ -56,9 +94,7 @@ export async function runSeoStep(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ researchOutput, scriptOutput, generateShorts: true }),
   });
-  const data = await res.json();
-  if (!data.success) throw new Error(data.error ?? "SEO failed");
-  return data.data;
+  return consumeSSEResult<SEOOutput>(res, "SEO");
 }
 
 export async function runQualityStep(
@@ -77,10 +113,9 @@ export async function runQualityStep(
       attempt, qualityThreshold,
     }),
   });
-  const data = await res.json();
-  if (!data.success) throw new Error(data.error ?? "Quality gate failed");
-  if (data.data.recommendation === "REJECT") {
-    throw new Error(`Quality gate REJECTED: overall ${data.data.overall}/10`);
+  const result = await consumeSSEResult<QualityGateOutput>(res, "Quality Gate");
+  if (result.recommendation === "REJECT") {
+    throw new Error(`Quality gate REJECTED: overall ${result.overall}/10`);
   }
-  return data.data;
+  return result;
 }

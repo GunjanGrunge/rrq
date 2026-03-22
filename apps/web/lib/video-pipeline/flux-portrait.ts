@@ -1,40 +1,53 @@
 /**
- * flux-portrait.ts
+ * flux-portrait.ts — Portrait generation via Replicate Flux-2-Pro
  *
- * Portrait generation flow — called during channel onboarding, not per-video pipeline.
- * Invokes the avatar-gen Lambda with GENERATE_ROSTER, polls DynamoDB for completion,
- * reads the generation manifest from S3, and returns typed output.
+ * Replaces EC2 g4dn.xlarge FLUX.1 [dev] spot instance.
+ * Called during channel onboarding only — NOT per-video.
  *
- * EC2 g4dn.xlarge spot instance handles inference. This module is the orchestration
- * layer only — no EC2 client needed here.
+ * black-forest-labs/flux-2-pro on Replicate:
+ *   - Seed-locked for face consistency across videos
+ *   - Anti-gloss prompt engineering (film grain, texture, natural lighting)
+ *   - Downloads portrait → uploads to S3 reference path
+ *   - Writes generation manifest to S3
+ *
+ * To switch to Fal.ai: set REPLICATE_BASE_URL=https://fal.run and
+ * update FLUX_MODEL below. Everything else stays the same.
  */
 
-import { InvokeCommand } from "@aws-sdk/client-lambda";
-import { GetItemCommand } from "@aws-sdk/client-dynamodb";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { getDynamoClient, getLambdaClient, getS3Client } from "@/lib/aws-clients";
+import { getS3Client, getDynamoClient } from "@/lib/aws-clients";
+import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 
-// ─── AWS Clients ──────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-const lambda = getLambdaClient();
-const dynamo = getDynamoClient();
-const s3     = getS3Client();
+const REPLICATE_BASE_URL  = process.env.REPLICATE_BASE_URL ?? "https://api.replicate.com";
+const S3_BUCKET           = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+/** black-forest-labs/flux-1.1-pro on Replicate */
+const FLUX_MODEL = "black-forest-labs/flux-1.1-pro";
 
-const S3_BUCKET              = process.env.S3_BUCKET_NAME ?? "content-factory-assets";
-const AVATAR_GEN_LAMBDA_ARN  = process.env.AVATAR_GEN_LAMBDA_ARN ?? "";
+/** Max wait per portrait (5 min) */
+const POLL_TIMEOUT_MS  = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 5_000;
 
-/** Maximum wait for portrait batch: 20 minutes */
-const POLL_TIMEOUT_MS  = 20 * 60 * 1000;
-/** Poll every 15 seconds */
-const POLL_INTERVAL_MS = 15_000;
+// ─── Anti-gloss prompt suffix ─────────────────────────────────────────────────
+// Prevents the over-processed "AI gloss" look that 8k/photorealistic prompts cause
 
-// ─── Input / Output types ─────────────────────────────────────────────────────
+const ANTI_GLOSS_SUFFIX = [
+  "film grain",
+  "natural skin pores",
+  "slight skin texture",
+  "imperfect natural lighting",
+  "shot on Sony A7R IV",
+  "candid editorial",
+  "--no studio-perfect, --no 8k, --no photorealistic, --no CGI skin",
+].join(", ");
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FluxPortraitInput {
-  channelId: string;
-  jobId:     string;
+  channelId:  string;
+  jobId:      string;
   presenters: Array<{
     presenterId:     string;
     seed:            number;
@@ -47,8 +60,8 @@ export interface FluxPortraitInput {
 export interface FluxPortraitOutput {
   portraits: Array<{
     presenterId:  string;
-    s3Reference:  string;   // S3 key of reference.jpg
-    s3Preview:    string;   // S3 key of portrait_preview.jpg
+    s3Reference:  string;
+    s3Preview:    string;
     seed:         number;
     generatedAt:  string;
   }>;
@@ -56,216 +69,192 @@ export interface FluxPortraitOutput {
   renderTimeMs: number;
 }
 
-// ─── S3 manifest shape ────────────────────────────────────────────────────────
+// ─── Replicate helpers ────────────────────────────────────────────────────────
 
-interface GenerationManifest {
-  jobId:      string;
-  channelId:  string;
-  portraits:  Array<{
-    presenterId:    string;
-    s3KeyReference: string;
-    s3KeyPreview:   string;
-    s3KeyMetadata:  string;
-    seed:           number;
-    generatedAt:    string;
-  }>;
-  totalRenderTimeMs: number;
+interface ReplicatePrediction {
+  id:     string;
+  status: "starting" | "processing" | "succeeded" | "failed" | "canceled";
+  output: string | string[] | null;
+  error:  string | null;
 }
 
-// ─── Main orchestration function ──────────────────────────────────────────────
+async function createFluxPrediction(prompt: string, seed: number): Promise<string> {
+  const fullPrompt = `${prompt}, ${ANTI_GLOSS_SUFFIX}`;
 
-/**
- * Runs a FLUX portrait generation batch for the given channel during onboarding.
- *
- * - Validates EC2_FLUX_PORTRAIT_AMI_ID is set (guard against misconfiguration)
- * - Invokes avatar-gen Lambda with GENERATE_ROSTER event
- * - Polls DynamoDB avatar-profiles until all presenters have approvalStatus != PENDING
- * - Reads generation manifest from S3
- * - Returns typed FluxPortraitOutput
- *
- * NOT called per-video. SkyReels reuses reference.jpg from S3 indefinitely.
- */
-export async function runFluxPortraitBatch(
-  input: FluxPortraitInput
-): Promise<FluxPortraitOutput> {
-  if (!process.env.EC2_FLUX_PORTRAIT_AMI_ID) {
-    throw new Error(
-      "[flux-portrait] EC2_FLUX_PORTRAIT_AMI_ID is not set — cannot launch portrait generation"
-    );
-  }
-
-  if (!AVATAR_GEN_LAMBDA_ARN) {
-    throw new Error(
-      "[flux-portrait] AVATAR_GEN_LAMBDA_ARN is not set — cannot invoke avatar-gen Lambda"
-    );
-  }
-
-  const { channelId, jobId, presenters } = input;
-
-  console.log(
-    `[flux-portrait][${jobId}] Starting portrait batch for channelId=${channelId}, ` +
-    `${presenters.length} presenter(s)`
-  );
-
-  // ── Invoke avatar-gen Lambda ────────────────────────────────────────────────
-  const lambdaPayload = {
-    type:            "GENERATE_ROSTER",
-    channelId,
-    characterBriefs: presenters.map(p => ({
-      // Lambda event uses presenters array; handler maps directly
-      // The Lambda handler uses FluxPresenterInput shape via GENERATE_ROSTER
-      slotId:       p.presenterId,
-      seed:         p.seed,
-      base_prompt:  p.base_prompt,
-      guidance_scale: p.guidance_scale ?? 3.5,
-      num_steps:    p.num_steps ?? 50,
-      // Minimal CharacterBrief — Lambda will use existing DynamoDB profile if present
-      gender:       "FEMALE" as const,
-      ageRange:     "25-38",
-      archetype:    "editorial_power",
-      visualDirection: {
-        style:           "",
-        colourPalette:   "",
-        hairDirection:   "",
-        makeupIntensity: "NATURAL" as const,
-        backgroundNote:  "",
+  const res = await fetch(`${REPLICATE_BASE_URL}/v1/models/${FLUX_MODEL}/predictions`, {
+    method:  "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.REPLICATE_API_TOKEN ?? ""}`,
+      "Content-Type":  "application/json",
+      "Prefer":        "respond-async",
+    },
+    body: JSON.stringify({
+      input: {
+        prompt:           fullPrompt,
+        seed,
+        width:            768,
+        height:           1024,
+        output_format:    "jpg",
+        output_quality:   92,
+        safety_tolerance: 2,
       },
-      personality: {
-        coreTraits:      [],
-        deliveryStyle:   "",
-        hookStyle:       "",
-        audienceRapport: "",
-        verbalTics:      [],
-        avoid:           [],
-      },
-      contentFit:         [],
-      voiceDirection:     "",
-      strategicRationale: "",
-    })),
-  };
+    }),
+  });
 
-  const invokeResult = await lambda.send(
-    new InvokeCommand({
-      FunctionName:   AVATAR_GEN_LAMBDA_ARN,
-      InvocationType: "RequestResponse",
-      Payload:        Buffer.from(JSON.stringify(lambdaPayload)),
-    })
-  );
-
-  if (invokeResult.FunctionError) {
-    const errMsg = invokeResult.Payload
-      ? Buffer.from(invokeResult.Payload).toString("utf-8")
-      : "Unknown Lambda error";
-    throw new Error(
-      `[flux-portrait][${jobId}] avatar-gen Lambda error: ${errMsg}`
-    );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`[flux-portrait] Replicate create failed (${res.status}): ${body}`);
   }
 
-  console.log(`[flux-portrait][${jobId}] Lambda invoked — EC2 instance launching`);
-
-  // ── Poll DynamoDB until all portraits are in non-pending state ──────────────
-  const presenterIds = presenters.map(p => p.presenterId);
-  await pollUntilApprovalResolved(channelId, presenterIds, jobId);
-
-  // ── Read generation manifest from S3 ───────────────────────────────────────
-  const manifest = await readGenerationManifest(channelId, jobId);
-
-  const output: FluxPortraitOutput = {
-    portraits:    manifest.portraits.map(p => ({
-      presenterId: p.presenterId,
-      s3Reference: p.s3KeyReference,
-      s3Preview:   p.s3KeyPreview,
-      seed:        p.seed,
-      generatedAt: p.generatedAt,
-    })),
-    instanceId:   `flux-${jobId}`,   // instanceId tracked inside Lambda; returned for audit
-    renderTimeMs: manifest.totalRenderTimeMs,
-  };
-
-  console.log(
-    `[flux-portrait][${jobId}] Portrait batch complete — ` +
-    `${output.portraits.length} portraits in ${output.renderTimeMs}ms`
-  );
-
-  return output;
+  const json = await res.json() as ReplicatePrediction;
+  return json.id;
 }
 
-// ─── Polling ──────────────────────────────────────────────────────────────────
-
-async function pollUntilApprovalResolved(
-  channelId:    string,
-  presenterIds: string[],
-  jobId:        string
-): Promise<void> {
+async function pollPrediction(predictionId: string): Promise<string> {
   const start = Date.now();
 
   while (Date.now() - start < POLL_TIMEOUT_MS) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
-    const statuses = await Promise.all(
-      presenterIds.map(pid => getApprovalStatus(channelId, pid))
+    const res = await fetch(
+      `${REPLICATE_BASE_URL}/v1/predictions/${predictionId}`,
+      { headers: { "Authorization": `Bearer ${process.env.REPLICATE_API_TOKEN ?? ""}` } }
     );
 
-    const pending   = statuses.filter(s => s === "PENDING_APPROVAL" || s === null);
-    const resolved  = statuses.filter(s => s !== null && s !== "PENDING_APPROVAL");
+    if (!res.ok) throw new Error(`[flux-portrait] Poll failed (${res.status})`);
 
-    console.log(
-      `[flux-portrait][${jobId}] Approval status: ${resolved.length}/${presenterIds.length} resolved`
-    );
+    const json = await res.json() as ReplicatePrediction;
 
-    if (pending.length === 0) {
-      return;
+    if (json.status === "succeeded") {
+      const url = Array.isArray(json.output) ? json.output[0] : json.output;
+      if (!url) throw new Error(`[flux-portrait] Succeeded but no output URL`);
+      return url;
+    }
+
+    if (json.status === "failed" || json.status === "canceled") {
+      throw new Error(`[flux-portrait] Prediction ${json.status}: ${json.error ?? "unknown"}`);
     }
   }
 
-  throw new Error(
-    `[flux-portrait][${jobId}] Timed out after ${POLL_TIMEOUT_MS / 60000}min ` +
-    `waiting for portrait approval resolution`
-  );
+  throw new Error(`[flux-portrait] Timed out after ${POLL_TIMEOUT_MS / 60000} min`);
 }
 
-async function getApprovalStatus(
-  channelId:   string,
-  presenterId: string
-): Promise<string | null> {
-  try {
-    const result = await dynamo.send(
-      new GetItemCommand({
-        TableName: "avatar-profiles",
-        Key: {
-          channelId:   { S: channelId },
-          presenterId: { S: presenterId },
-        },
-        ProjectionExpression: "approval_status",
-      })
-    );
-    return result.Item?.approval_status?.S ?? null;
-  } catch {
-    return null;
-  }
+async function downloadAndUploadToS3(imageUrl: string, s3Key: string): Promise<void> {
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`[flux-portrait] Failed to download portrait: ${res.status}`);
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const s3 = getS3Client();
+
+  await s3.send(new PutObjectCommand({
+    Bucket:      S3_BUCKET,
+    Key:         s3Key,
+    Body:        buffer,
+    ContentType: "image/jpeg",
+  }));
 }
 
-// ─── Read S3 manifest ─────────────────────────────────────────────────────────
+// ─── DynamoDB — mark approved ─────────────────────────────────────────────────
 
-async function readGenerationManifest(
-  channelId: string,
-  jobId:     string
-): Promise<GenerationManifest> {
-  const key = `avatars/dynamic/${channelId}/generation_manifest.json`;
+async function markPortraitApproved(channelId: string, presenterId: string): Promise<void> {
+  const dynamo = getDynamoClient();
+  await dynamo.send(new UpdateItemCommand({
+    TableName: "avatar-profiles",
+    Key: {
+      channelId:   { S: channelId },
+      presenterId: { S: presenterId },
+    },
+    UpdateExpression: "SET approval_status = :s, approvedAt = :t",
+    ExpressionAttributeValues: {
+      ":s": { S: "APPROVED" },
+      ":t": { S: new Date().toISOString() },
+    },
+  }));
+}
 
-  const response = await s3.send(
-    new GetObjectCommand({
-      Bucket: S3_BUCKET,
-      Key:    key,
-    })
-  );
+// ─── Main entry point ─────────────────────────────────────────────────────────
 
-  const body = await response.Body?.transformToString();
-  if (!body) {
-    throw new Error(
-      `[flux-portrait][${jobId}] Generation manifest not found at s3://${S3_BUCKET}/${key}`
-    );
+/**
+ * Generates presenter portraits via Replicate Flux-2-Pro.
+ * Each presenter is processed sequentially (seed-locked).
+ * Uploads reference.jpg + preview.jpg to S3.
+ * Writes generation manifest to S3.
+ * Marks each portrait APPROVED in DynamoDB avatar-profiles.
+ *
+ * NOT called per-video. SkyReels/Hallo2 reuses reference.jpg from S3 indefinitely.
+ */
+export async function runFluxPortraitBatch(
+  input: FluxPortraitInput
+): Promise<FluxPortraitOutput> {
+  if (!process.env.REPLICATE_API_TOKEN) {
+    throw new Error("[flux-portrait] REPLICATE_API_TOKEN is not set — cannot generate portraits");
   }
 
-  return JSON.parse(body) as GenerationManifest;
+  const { channelId, jobId, presenters } = input;
+  const startMs = Date.now();
+
+  console.log(
+    `[flux-portrait][${jobId}] Starting portrait batch for channelId=${channelId}, ` +
+    `${presenters.length} presenter(s) via Replicate`
+  );
+
+  const portraits: FluxPortraitOutput["portraits"] = [];
+
+  for (const presenter of presenters) {
+    console.log(`[flux-portrait][${jobId}] Generating presenter: ${presenter.presenterId}`);
+
+    const predictionId = await createFluxPrediction(presenter.base_prompt, presenter.seed);
+    const imageUrl     = await pollPrediction(predictionId);
+
+    const s3Reference = `avatars/dynamic/${channelId}/${presenter.presenterId}/reference.jpg`;
+    const s3Preview   = `avatars/dynamic/${channelId}/${presenter.presenterId}/portrait_preview.jpg`;
+    const generatedAt = new Date().toISOString();
+
+    // Upload same image to both reference and preview paths
+    await Promise.all([
+      downloadAndUploadToS3(imageUrl, s3Reference),
+      downloadAndUploadToS3(imageUrl, s3Preview),
+    ]);
+
+    await markPortraitApproved(channelId, presenter.presenterId);
+
+    portraits.push({
+      presenterId:  presenter.presenterId,
+      s3Reference,
+      s3Preview,
+      seed:         presenter.seed,
+      generatedAt,
+    });
+
+    console.log(`[flux-portrait][${jobId}] Portrait ${presenter.presenterId} complete`);
+  }
+
+  // Write generation manifest to S3
+  const manifestKey = `avatars/dynamic/${channelId}/generation_manifest.json`;
+  const manifest = {
+    jobId,
+    channelId,
+    portraits: portraits.map(p => ({
+      presenterId:    p.presenterId,
+      s3KeyReference: p.s3Reference,
+      s3KeyPreview:   p.s3Preview,
+      s3KeyMetadata:  `avatars/dynamic/${channelId}/${p.presenterId}/metadata.json`,
+      seed:           p.seed,
+      generatedAt:    p.generatedAt,
+    })),
+    totalRenderTimeMs: Date.now() - startMs,
+  };
+
+  const s3 = getS3Client();
+  await s3.send(new PutObjectCommand({
+    Bucket:      S3_BUCKET,
+    Key:         manifestKey,
+    Body:        JSON.stringify(manifest),
+    ContentType: "application/json",
+  }));
+
+  const renderTimeMs = Date.now() - startMs;
+  console.log(`[flux-portrait][${jobId}] Batch complete — ${portraits.length} portraits in ${renderTimeMs}ms`);
+
+  return { portraits, instanceId: "replicate", renderTimeMs };
 }

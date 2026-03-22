@@ -1,7 +1,7 @@
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 
-const BUCKET = process.env.S3_BUCKET_NAME ?? "content-factory-assets";
+const BUCKET = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 
 let s3Client: S3Client | null = null;
 

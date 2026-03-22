@@ -58,14 +58,28 @@ export const createVideoWorkflow = inngest.createFunction(
       runAudioStep(jobId, scriptOutput)
     );
 
+    // ── Sanitize scriptOutput.visualAssets before media step ─────────
+    // Guards against Muse hallucinating invalid asset types or non-string citations
+    const VALID_VISUAL_TYPES = new Set([
+      "comparison-table", "bar-chart", "line-chart", "radar-chart",
+      "flow-diagram", "infographic-card", "personality-card",
+      "news-timeline", "stat-callout", "animated-infographic", "geo-map",
+    ]);
+    const sanitizedScriptOutput = await step.run("step-sanitize-visual-assets", () => ({
+      ...scriptOutput,
+      visualAssets: (scriptOutput.visualAssets ?? [])
+        .filter((a) => VALID_VISUAL_TYPES.has(a.type))
+        .map((a) => ({ ...a, citations: (a.citations ?? []).map((c) => String(c)) })),
+    }));
+
     // ── Steps 6+7+8+9: Media Generation (parallel) ───────────────────
     const mediaResults = await step.run("step-6-7-8-9-parallel-media", () =>
-      runParallelMediaStep(jobId, topic, scriptOutput, audioOutput, avatarId)
+      runParallelMediaStep(jobId, topic, sanitizedScriptOutput, audioOutput, avatarId)
     );
 
     // ── Step 10: AV Sync ──────────────────────────────────────────────
     const avSyncOutput: AvSyncOutputType = await step.run("step-10-av-sync", () =>
-      runAvSyncStep(jobId, scriptOutput, audioOutput, mediaResults)
+      runAvSyncStep(jobId, sanitizedScriptOutput, audioOutput, mediaResults)
     );
 
     // ── Step 11: Vera QA (Phase 12 stub) ──────────────────────────────

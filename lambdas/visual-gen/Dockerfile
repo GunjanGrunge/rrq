@@ -1,6 +1,34 @@
-FROM public.ecr.aws/lambda/nodejs:20
+# Build context: monorepo root (..)
+# SST: container.context = "..", container.file = "lambdas/visual-gen/Dockerfile"
 
-# Install Chromium dependencies + fonts for Remotion rendering
+FROM --platform=linux/amd64 public.ecr.aws/lambda/nodejs:20 AS builder
+
+WORKDIR /repo
+
+# Copy root workspace manifests first (cache layer)
+COPY package.json package-lock.json ./
+
+# Copy workspace package.json files so npm workspaces resolves links
+COPY packages/lambda-types/package.json ./packages/lambda-types/
+COPY packages/remotion-compositions/package.json ./packages/remotion-compositions/
+COPY lambdas/visual-gen/package.json ./lambdas/visual-gen/
+
+# Install all workspace deps (resolves * workspace references, includes optional)
+RUN npm install --include=optional
+
+# Now copy actual source
+COPY packages/lambda-types/ ./packages/lambda-types/
+COPY packages/remotion-compositions/ ./packages/remotion-compositions/
+COPY lambdas/tsconfig.base.json ./lambdas/
+COPY lambdas/visual-gen/ ./lambdas/visual-gen/
+
+# Compile TypeScript for visual-gen
+RUN cd lambdas/visual-gen && npx tsc
+
+# ── Runtime image ─────────────────────────────────────────────────────────────
+FROM --platform=linux/amd64 public.ecr.aws/lambda/nodejs:20
+
+# Chromium / Puppeteer system deps on Amazon Linux 2023
 RUN dnf install -y \
     atk \
     cups-libs \
@@ -11,25 +39,23 @@ RUN dnf install -y \
     libXext \
     libXi \
     libXrandr \
-    libXScrnSaver \
     libXtst \
     pango \
-    xorg-x11-fonts-100dpi \
-    xorg-x11-fonts-75dpi \
-    xorg-x11-fonts-cyrillic \
-    xorg-x11-fonts-misc \
-    xorg-x11-fonts-Type1 \
-    xorg-x11-utils \
     mesa-libgbm \
+    alsa-lib \
+    nss \
+    tar xz \
     && dnf clean all
 
-# Install FFmpeg (needed for Remotion video rendering)
-RUN dnf install -y tar xz && \
-    curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | \
-    tar -xJ --strip-components=1 -C /usr/local/bin/ --wildcards '*/ffmpeg' '*/ffprobe' && \
-    dnf clean all
+# FFmpeg baked in — no Lambda layer needed
+# curl-minimal is already in the base image
+RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | \
+    tar -xJ --strip-components=1 -C /usr/local/bin/ --wildcards '*/ffmpeg' '*/ffprobe'
 
-# Copy function code
-COPY dist/ ${LAMBDA_TASK_ROOT}/
+# Copy compiled handler
+COPY --from=builder /repo/lambdas/visual-gen/dist/ ${LAMBDA_TASK_ROOT}/
+
+# Copy node_modules (workspace deps resolved during npm install at root)
+COPY --from=builder /repo/node_modules/ ${LAMBDA_TASK_ROOT}/node_modules/
 
 CMD ["handler.handler"]

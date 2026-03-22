@@ -1,5 +1,5 @@
 import React from "react";
-import { Composition } from "remotion";
+import { Composition, registerRoot } from "remotion";
 import { THEME } from "./theme";
 import { ComparisonTable } from "./compositions/ComparisonTable";
 import { BarChart } from "./compositions/BarChart";
@@ -161,3 +161,5 @@ export const RemotionRoot: React.FC = () => (
     />
   </>
 );
+
+registerRoot(RemotionRoot);

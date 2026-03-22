@@ -6,7 +6,7 @@ import type { NovelPattern, SessionMessage } from "./types";
 
 const db = getDynamoClient();
 const s3 = getS3Client();
-const MEMORY_BUCKET = process.env.RRQ_MEMORY_BUCKET ?? "rrq-memory";
+const MEMORY_BUCKET = process.env.RRQ_MEMORY_BUCKET ?? "rrq-content-factory-gunjansarkar-rrqmemorybucket-nwnrmvao";
 
 // ─── Write novel pattern to DynamoDB (PENDING_ORACLE) + S3 conversation ───────
 

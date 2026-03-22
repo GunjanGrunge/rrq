@@ -1,0 +1,323 @@
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #f0ece4; font-family: 'Inter', sans-serif; padding: 32px; }
+
+  .flow-title { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: #f5a623; margin-bottom: 24px; }
+
+  .flow-container { display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; padding-bottom: 16px; }
+
+  .step-block {
+    background: #111111;
+    border: 1px solid #1e1e1e;
+    border-radius: 10px;
+    padding: 20px;
+    min-width: 200px;
+    max-width: 220px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .step-block.active { border-color: #f5a623; }
+  .step-block.cold-start { border-color: #3b82f6; }
+
+  .step-num {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: #666;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .step-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f0ece4;
+    margin-bottom: 6px;
+  }
+  .step-sub {
+    font-size: 11px;
+    color: #888;
+    line-height: 1.5;
+  }
+
+  .step-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  .step-icon.amber { background: rgba(245,166,35,0.15); }
+  .step-icon.blue { background: rgba(59,130,246,0.15); }
+
+  .arrow {
+    color: #333;
+    font-size: 20px;
+    flex-shrink: 0;
+    align-self: center;
+    margin-top: -20px;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 20px;
+    margin-top: 8px;
+  }
+  .badge.auto { background: rgba(245,166,35,0.15); color: #f5a623; }
+  .badge.manual { background: rgba(255,255,255,0.06); color: #888; }
+  .badge.ai { background: rgba(59,130,246,0.15); color: #60a5fa; }
+
+  .divider { width: 100%; height: 1px; background: #1e1e1e; margin: 28px 0; }
+
+  .screen-preview {
+    background: #111111;
+    border: 1px solid #1e1e1e;
+    border-radius: 10px;
+    overflow: hidden;
+    max-width: 800px;
+  }
+  .screen-header {
+    background: #161616;
+    border-bottom: 1px solid #1e1e1e;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #666;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .screen-body { padding: 24px; }
+
+  .wizard-step { margin-bottom: 20px; }
+  .wizard-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .wizard-value { font-size: 15px; color: #f0ece4; }
+
+  .niche-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .niche-tag {
+    padding: 8px 12px;
+    border: 1px solid #1e1e1e;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    cursor: pointer;
+  }
+  .niche-tag.selected { border-color: #f5a623; color: #f5a623; background: rgba(245,166,35,0.08); }
+
+  .mode-option {
+    border: 1px solid #1e1e1e;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .mode-option.selected { border-color: #f5a623; background: rgba(245,166,35,0.05); }
+  .mode-title { font-size: 13px; font-weight: 600; color: #f0ece4; margin-bottom: 2px; }
+  .mode-desc { font-size: 11px; color: #666; }
+
+  .progress-bar { height: 2px; background: #1e1e1e; border-radius: 2px; margin-bottom: 20px; }
+  .progress-fill { height: 100%; background: #f5a623; border-radius: 2px; width: 40%; }
+
+  .section-title { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+
+  .cta-btn {
+    background: #f5a623;
+    color: #000;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-top: 16px;
+  }
+</style>
+
+<h2>Onboarding → Cold Start Flow</h2>
+<p class="subtitle" style="margin-bottom: 28px;">How a new user moves from sign-up to first video recommendation</p>
+
+<!-- FLOW DIAGRAM -->
+<p class="flow-title">User Journey</p>
+<div class="flow-container">
+  <div class="step-block active">
+    <div class="step-icon amber">👤</div>
+    <div class="step-num">Step 1</div>
+    <div class="step-title">Sign Up</div>
+    <div class="step-sub">Clerk auth. New user account created. DynamoDB user-settings seeded.</div>
+    <span class="badge manual">2 min</span>
+  </div>
+
+  <div class="arrow">→</div>
+
+  <div class="step-block active">
+    <div class="step-icon amber">📺</div>
+    <div class="step-num">Step 2</div>
+    <div class="step-title">Connect YouTube</div>
+    <div class="step-sub">OAuth flow. Grants upload + analytics access. Token stored in DynamoDB.</div>
+    <span class="badge manual">1 min</span>
+  </div>
+
+  <div class="arrow">→</div>
+
+  <div class="step-block active">
+    <div class="step-icon amber">🎯</div>
+    <div class="step-num">Step 3</div>
+    <div class="step-title">Pick Channel Mode</div>
+    <div class="step-sub">Studio, Rex Mode, or Autopilot. Niche selection. Sets channel identity.</div>
+    <span class="badge manual">2 min</span>
+  </div>
+
+  <div class="arrow">→</div>
+
+  <div class="step-block cold-start">
+    <div class="step-icon blue">🔭</div>
+    <div class="step-num">Auto-fires</div>
+    <div class="step-title">Cold Start Sprint</div>
+    <div class="step-sub">Rex + SNIPER + Oracle + The Line. ~3 min. Seeds council KB.</div>
+    <span class="badge ai">AI Research</span>
+  </div>
+
+  <div class="arrow">→</div>
+
+  <div class="step-block">
+    <div class="step-icon">✦</div>
+    <div class="step-num">Outcome</div>
+    <div class="step-title">3 Video Candidates</div>
+    <div class="step-sub">Ranked + reasoned. User picks one. Council convenes. Production begins.</div>
+    <span class="badge auto">GO</span>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ONBOARDING WIZARD PREVIEW -->
+<p class="flow-title">Onboarding Wizard — Step 3 of 4 (Channel Setup)</p>
+<div class="screen-preview">
+  <div class="screen-header">
+    <div class="dot" style="background: #ef4444;"></div>
+    <div class="dot" style="background: #f5a623;"></div>
+    <div class="dot" style="background: #22c55e;"></div>
+    <span style="margin-left: 8px;">rrq.ai — Channel Setup</span>
+  </div>
+  <div class="screen-body">
+    <div class="progress-bar"><div class="progress-fill"></div></div>
+    <div class="section-title">Step 3 of 4 — Channel Mode</div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+      <div>
+        <div class="wizard-label">Choose how you want to work</div>
+        <div style="margin-top: 10px;">
+          <div class="mode-option selected">
+            <div class="mode-title">⚡ Rex Mode</div>
+            <div class="mode-desc">Rex surfaces ranked topics. You pick and fire. AI executes.</div>
+          </div>
+          <div class="mode-option">
+            <div class="mode-title">🎙 Studio Mode</div>
+            <div class="mode-desc">You enter the topic. Full AI production pipeline.</div>
+          </div>
+          <div class="mode-option">
+            <div class="mode-title">🤖 Autopilot Mode</div>
+            <div class="mode-desc">Fully autonomous. Niche-locked channels only.</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="wizard-label">Select your niche(s)</div>
+        <div class="niche-grid" style="margin-top: 10px;">
+          <div class="niche-tag selected">Tech Reviews</div>
+          <div class="niche-tag">AI & ML</div>
+          <div class="niche-tag">Finance</div>
+          <div class="niche-tag">True Crime</div>
+          <div class="niche-tag">History</div>
+          <div class="niche-tag">Gaming</div>
+          <div class="niche-tag">Health</div>
+          <div class="niche-tag">Science</div>
+          <div class="niche-tag">+ Custom</div>
+        </div>
+        <div style="margin-top: 14px; padding: 10px 12px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 6px;">
+          <div style="font-size: 10px; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">After this step</div>
+          <div style="font-size: 11px; color: #888;">A 3-minute Cold Start Research Sprint will run automatically — competitor analysis, content gaps, and your first 3 video candidates.</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="cta-btn">Continue → Start Cold Start Sprint</button>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- COLD START PAGE PREVIEW -->
+<p class="flow-title">Cold Start Page — Research Running</p>
+<div class="screen-preview" style="max-width: 800px;">
+  <div class="screen-header">
+    <div class="dot" style="background: #ef4444;"></div>
+    <div class="dot" style="background: #f5a623;"></div>
+    <div class="dot" style="background: #22c55e;"></div>
+    <span style="margin-left: 8px;">rrq.ai/cold-start</span>
+  </div>
+  <div class="screen-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    <!-- Left: progress -->
+    <div>
+      <div style="font-size: 18px; font-weight: 700; color: #f0ece4; margin-bottom: 4px;">Cold Start Sprint</div>
+      <div style="font-size: 12px; color: #888; margin-bottom: 20px;">Tech Reviews · Rex Mode</div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; background: #22c55e; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0;">✓</div>
+          <div>
+            <div style="font-size: 12px; color: #f0ece4;">Rex Deep Scan</div>
+            <div style="font-size: 10px; color: #666;">Trend velocity · 12 open windows found</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; background: #22c55e; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0;">✓</div>
+          <div>
+            <div style="font-size: 12px; color: #f0ece4;">SNIPER Competitor Audit</div>
+            <div style="font-size: 10px; color: #666;">8 channels profiled · 3 gaps identified</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; background: #f5a623; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <div style="width: 8px; height: 8px; border: 1.5px solid #000; border-top-color: transparent; border-radius: 50;"></div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: #f5a623;">Oracle Pattern Analysis</div>
+            <div style="font-size: 10px; color: #888;">Pulling cold-start growth patterns...</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; opacity: 0.4;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; border: 1px solid #333; flex-shrink: 0;"></div>
+          <div style="font-size: 12px; color: #666;">The Line Synthesis</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; opacity: 0.4;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; border: 1px solid #333; flex-shrink: 0;"></div>
+          <div style="font-size: 12px; color: #666;">Council Index Seeding</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 20px; height: 3px; background: #1e1e1e; border-radius: 2px;">
+        <div style="width: 55%; height: 100%; background: #f5a623; border-radius: 2px;"></div>
+      </div>
+      <div style="font-size: 10px; color: #666; margin-top: 6px;">Phase 3 of 5 · ~90 seconds remaining</div>
+    </div>
+
+    <!-- Right: placeholder for results -->
+    <div style="display: flex; align-items: center; justify-content: center; border: 1px dashed #1e1e1e; border-radius: 8px; min-height: 200px;">
+      <div style="text-align: center;">
+        <div style="font-size: 24px; margin-bottom: 8px;">🔭</div>
+        <div style="font-size: 12px; color: #666;">Video candidates will appear<br>when research completes</div>
+      </div>
+    </div>
+  </div>
+</div>

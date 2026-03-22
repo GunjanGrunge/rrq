@@ -6,7 +6,7 @@ import {
 import { writeFile } from "fs/promises";
 import { stat } from "fs/promises";
 
-const BUCKET = process.env.S3_BUCKET_NAME ?? "content-factory-assets";
+const BUCKET = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 
 let s3Client: S3Client | null = null;
 

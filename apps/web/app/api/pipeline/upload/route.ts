@@ -45,6 +45,18 @@ export async function POST(req: Request) {
       const scheduledTime = seoOutput?.scheduledTime ?? new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
       const shortsScheduledTime = seoOutput?.shortsScheduledTime ?? new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString();
 
+      // Sanitize tags: strip #, trim whitespace, max 30 chars, total ≤500 chars
+      const sanitizeTags = (raw: string[]): string[] => {
+        let total = 0;
+        return raw
+          .map((t) => t.replace(/^#/, "").trim())
+          .filter((t) => t.length > 0 && t.length <= 30)
+          .filter((t) => {
+            total += t.length + 1;
+            return total <= 500;
+          });
+      };
+
       const output = await invokeUploader({
         jobId,
         userId,
@@ -52,7 +64,7 @@ export async function POST(req: Request) {
           s3Key: avSyncOutput?.finalVideoS3Key ?? `jobs/${jobId}/final_youtube.mp4`,
           title: seoOutput?.finalTitle ?? "Untitled Video",
           description: seoOutput?.description ?? "",
-          tags: seoOutput?.tags ?? [],
+          tags: sanitizeTags(seoOutput?.tags ?? []),
           category: seoOutput?.category ?? "22",
           scheduledTime,
           thumbnailS3Key: `jobs/${jobId}/thumbnail_a.jpg`,
@@ -62,7 +74,7 @@ export async function POST(req: Request) {
               s3Key: shortsOutput.shortsS3Key,
               title: seoOutput?.shortsTitle ?? seoOutput?.finalTitle ?? "Short",
               description: seoOutput?.shortsDescription ?? "",
-              hashtags: seoOutput?.shortsHashtags ?? seoOutput?.hashtags ?? [],
+              hashtags: sanitizeTags(seoOutput?.shortsHashtags ?? seoOutput?.hashtags ?? []),
               scheduledTime: shortsScheduledTime,
             }
           : undefined,

@@ -75,7 +75,7 @@ export async function writeEpisode(
 
   await s3.send(
     new PutObjectCommand({
-      Bucket: process.env.RRQ_MEMORY_BUCKET ?? "rrq-memory",
+      Bucket: process.env.RRQ_MEMORY_BUCKET ?? "rrq-content-factory-gunjansarkar-rrqmemorybucket-nwnrmvao",
       Key: s3Key,
       Body: JSON.stringify(episode, null, 2),
       ContentType: "application/json",

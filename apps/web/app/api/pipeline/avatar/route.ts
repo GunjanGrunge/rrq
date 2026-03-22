@@ -37,7 +37,7 @@ export async function POST(req: Request) {
           const audio = sectionAudioMap.get(section.id);
           return {
             sectionId: section.id,
-            audioS3Key: audio?.s3Key ?? `jobs/${jobId}/audio/${section.id}.mp3`,
+            audioS3Key: audio?.s3Key ?? `jobs/${jobId}/audio/voiceover.mp3`,
             durationMs: audio?.durationMs ?? 5_000,
             cueMap: cueMap.filter((c) => c.timestamp >= 0),
             displayMode: section.displayMode as "avatar-fullscreen" | "broll-with-corner-avatar",
@@ -51,13 +51,13 @@ export async function POST(req: Request) {
       const output = await runSkyReelsInstance(jobId, {
         jobId,
         avatarId: "avatar_1",
-        voiceoverS3Key: audioOutput?.voiceoverUrl ?? `jobs/${jobId}/voiceover.mp3`,
+        voiceoverS3Key: audioOutput?.voiceoverUrl ?? `jobs/${jobId}/audio/voiceover.mp3`,
         beats: beats.length > 0
           ? beats
           : [
               {
                 sectionId: "default",
-                audioS3Key: `jobs/${jobId}/voiceover.mp3`,
+                audioS3Key: `jobs/${jobId}/audio/voiceover.mp3`,
                 durationMs: audioOutput?.totalDurationMs ?? 60_000,
                 cueMap: [],
                 displayMode: "avatar-fullscreen" as const,

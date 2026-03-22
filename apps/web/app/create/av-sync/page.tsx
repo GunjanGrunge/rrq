@@ -6,7 +6,8 @@ import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 import type { ScriptOutput } from "@/lib/types/pipeline";
-import type { AudioGenOutputType } from "@rrq/lambda-types";
+import type { AudioGenOutputType, AvSyncOutputType } from "@rrq/lambda-types";
+import { CheckCircle, ArrowRight, Film } from "lucide-react";
 
 const SUBTASK_LABELS = [
   "Gather all produced assets — presenter, b-roll, graphics, visuals",
@@ -15,6 +16,80 @@ const SUBTASK_LABELS = [
   "Burn in subtitles with accurate timing",
   "Package final video for quality review",
 ];
+
+function AVSyncResult({
+  output,
+  onContinue,
+  onRerun,
+}: {
+  output: AvSyncOutputType;
+  onContinue: () => void;
+  onRerun: () => void;
+}) {
+  const durationSec = output.durationMs ? Math.round(output.durationMs / 1000) : null;
+  const fileSizeMb = output.fileSize ? (output.fileSize / 1024 / 1024).toFixed(1) : null;
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="flex items-start gap-4 mb-8">
+        <div className="w-10 h-10 rounded-full bg-accent-success/10 border border-accent-success/30 flex items-center justify-center shrink-0">
+          <CheckCircle size={18} className="text-accent-success" />
+        </div>
+        <div>
+          <h1 className="font-syne text-2xl font-bold text-text-primary">Video Assembled</h1>
+          <p className="font-lora text-sm text-text-secondary mt-1 leading-relaxed">
+            All segments have been stitched, synced, and subtitled. Ready for quality review.
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-bg-surface border border-bg-border rounded-md overflow-hidden mb-6">
+        <div className="px-4 py-2.5 border-b border-bg-border">
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">Output</span>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="font-dm-mono text-xs text-text-secondary">S3 Key</span>
+            <span className="font-dm-mono text-xs text-text-primary truncate max-w-xs">{output.finalVideoS3Key}</span>
+          </div>
+          {durationSec && (
+            <div className="flex items-center justify-between">
+              <span className="font-dm-mono text-xs text-text-secondary">Duration</span>
+              <span className="font-dm-mono text-xs text-text-primary">
+                {Math.floor(durationSec / 60)}m {durationSec % 60}s
+              </span>
+            </div>
+          )}
+          {fileSizeMb && (
+            <div className="flex items-center justify-between">
+              <span className="font-dm-mono text-xs text-text-secondary">File size</span>
+              <span className="font-dm-mono text-xs text-text-primary">{fileSizeMb} MB</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="font-dm-mono text-xs text-text-secondary">Resolution</span>
+            <span className="font-dm-mono text-xs text-text-primary">{output.resolution ?? "720p"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-4">
+        <button
+          onClick={onRerun}
+          className="font-dm-mono text-[11px] text-text-tertiary hover:text-accent-primary transition-colors"
+        >
+          Re-assemble
+        </button>
+        <button
+          onClick={onContinue}
+          className="flex items-center gap-2 px-6 py-2.5 bg-accent-primary text-bg-base font-syne font-bold text-sm tracking-wider rounded-md hover:bg-accent-hover transition-colors"
+        >
+          QUALITY CHECK <ArrowRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function AVSyncPage() {
   const { outputs, jobId, stepStatuses, setStep, setStepOutput, setStepStatus, rerunStep } =
@@ -27,10 +102,12 @@ export default function AVSyncPage() {
 
   useEffect(() => { setStep(10); }, [setStep]);
 
+  const avSyncOutput = outputs[10] as AvSyncOutputType | undefined;
+
   useEffect(() => {
-    if (outputs[10]) {
+    // If output already exists — show result, don't re-run
+    if (avSyncOutput) {
       if (stepStatuses[10] !== "complete") setStepStatus(10, "complete");
-      router.push("/create/vera-qa");
       return;
     }
     if (stepStatuses[10] === "running") return;
@@ -79,7 +156,6 @@ export default function AVSyncPage() {
               if (event.type === "result") {
                 setStepOutput(10, event.data);
                 setStepStatus(10, "complete");
-                router.push("/create/vera-qa");
               }
               if (event.type === "error") throw new Error(event.error ?? "AV Sync failed");
             } catch (parseErr) {
@@ -102,12 +178,22 @@ export default function AVSyncPage() {
         <StepFailureCard
           stepNumber={10}
           stepLabel="AV Sync"
-          errorMessage={error ?? "AV Sync generation failed."}
+          errorMessage={error ?? "AV Sync failed."}
           showDownstreamWarning
           downstreamCount={STEP_DOWNSTREAM[10].length}
-          onRerunStep={() => { rerunStep(10); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false, false]); router.push("/create/av-sync"); }}
+          onRerunStep={() => { rerunStep(10); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false, false]); }}
         />
       </div>
+    );
+  }
+
+  if (avSyncOutput) {
+    return (
+      <AVSyncResult
+        output={avSyncOutput}
+        onContinue={() => router.push("/create/vera-qa")}
+        onRerun={() => { rerunStep(10); hasRun.current = false; setSubTasksDone([false, false, false, false, false]); }}
+      />
     );
   }
 
@@ -116,11 +202,7 @@ export default function AVSyncPage() {
       stepNumber={10}
       title="Assembling Your Video"
       description="All produced assets — presenter segments, b-roll footage, graphics, and visual overlays — are being assembled in the correct order and synced with the voiceover. Subtitles are added and the final video is packaged ready for quality review."
-      icon={
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" />
-        </svg>
-      }
+      icon={<Film size={22} strokeWidth={1.5} />}
       subTasks={SUBTASK_LABELS.map((label, i) => ({ label, done: subTasksDone[i] }))}
       estimatedTime="~3 minutes"
     />

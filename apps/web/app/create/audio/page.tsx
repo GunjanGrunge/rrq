@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import type { ScriptOutput, ScriptSection } from "@/lib/types/pipeline";
-import { Mic, Upload, CheckCircle, Play, Pause, SkipForward } from "lucide-react";
+import { Mic, Upload, CheckCircle, Play, Pause, SkipForward, ArrowRight } from "lucide-react";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -528,15 +528,19 @@ function AIVoicePage() {
   const [subTasksDone, setSubTasksDone] = useState<boolean[]>([false, false, false, false]);
   const [statusLine, setStatusLine] = useState("Starting voiceover generation…");
   const [error, setError] = useState<string | null>(null);
+  // Gender override — defaults to scriptOutput's voiceConfig gender
+  const [genderOverride, setGenderOverride] = useState<"male" | "female" | null>(null);
   const hasRun = useRef(false);
 
+  const audioOutput = outputs[5];
+  const effectiveGender = genderOverride ?? (scriptOutput?.voiceConfig?.gender ?? "female");
+
   useEffect(() => {
-    // If output already exists, the step completed — fix status if stuck and advance
-    if (outputs[5]) {
+    // If output already exists — show result, don't re-run
+    if (audioOutput) {
       if (stepStatuses[5] !== "complete") {
         setStepStatus(5, "complete");
       }
-      router.push("/create/avatar");
       return;
     }
     // Already running in another mount — do not fire again
@@ -546,12 +550,17 @@ function AIVoicePage() {
 
     setStepStatus(5, "running");
 
+    // Build a scriptOutput with potentially overridden gender
+    const patchedScript = genderOverride
+      ? { ...scriptOutput, voiceConfig: { ...scriptOutput.voiceConfig, gender: genderOverride } }
+      : scriptOutput;
+
     (async () => {
       try {
         const res = await fetch("/api/pipeline/audio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scriptOutput, jobId }),
+          body: JSON.stringify({ scriptOutput: patchedScript, jobId }),
         });
 
         if (!res.ok || !res.body) {
@@ -593,7 +602,7 @@ function AIVoicePage() {
               if (event.type === "result" && event.data) {
                 setStepOutput(5, event.data);
                 setStepStatus(5, "complete");
-                router.push("/create/avatar");
+                // Stay on page — show result instead of auto-navigating
               }
               if (event.type === "error") {
                 throw new Error(event.error ?? "Audio generation failed");
@@ -614,7 +623,7 @@ function AIVoicePage() {
 
   if (error) {
     return (
-      <div className="flex-1 p-8">
+      <div className="flex-1 p-8 max-w-2xl mx-auto w-full space-y-6">
         <StepFailureCard
           stepNumber={5}
           stepLabel="Audio"
@@ -623,12 +632,144 @@ function AIVoicePage() {
           downstreamCount={STEP_DOWNSTREAM[5].length}
           onRerunStep={() => { rerunStep(5); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false]); }}
         />
+        {/* Allow gender override before retrying */}
+        <div className="bg-bg-surface border border-bg-border rounded-md p-4">
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-3">
+            Override voice gender before retry
+          </span>
+          <div className="flex gap-3">
+            {(["female", "male"] as const).map((g) => (
+              <button
+                key={g}
+                onClick={() => setGenderOverride(g)}
+                className={`px-4 py-2 rounded-md font-syne font-bold text-xs tracking-wider transition-colors ${
+                  effectiveGender === g
+                    ? "bg-accent-primary text-bg-base"
+                    : "bg-bg-elevated border border-bg-border text-text-secondary hover:border-accent-primary/50"
+                }`}
+              >
+                {g.charAt(0).toUpperCase() + g.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show completed result
+  if (audioOutput) {
+    const out = audioOutput as { voiceId?: string; durationMs?: number; engine?: string };
+    return (
+      <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full space-y-6">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-full bg-accent-success/10 border border-accent-success/30 flex items-center justify-center shrink-0">
+            <CheckCircle size={18} className="text-accent-success" />
+          </div>
+          <div>
+            <h1 className="font-syne text-2xl font-bold text-text-primary">Voiceover Ready</h1>
+            <p className="font-lora text-sm text-text-secondary mt-1">
+              Your voiceover has been generated and saved.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-bg-surface border border-bg-border rounded-md overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-bg-border">
+            <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">Voice Details</span>
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-dm-mono text-xs text-text-secondary">Gender</span>
+              <span className="font-dm-mono text-xs text-text-primary capitalize">{effectiveGender}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-dm-mono text-xs text-text-secondary">Style</span>
+              <span className="font-dm-mono text-xs text-text-primary capitalize">{scriptOutput?.voiceConfig?.style ?? "—"}</span>
+            </div>
+            {out.engine && (
+              <div className="flex items-center justify-between">
+                <span className="font-dm-mono text-xs text-text-secondary">Engine</span>
+                <span className="font-dm-mono text-xs text-text-primary">{out.engine}</span>
+              </div>
+            )}
+            {out.durationMs && (
+              <div className="flex items-center justify-between">
+                <span className="font-dm-mono text-xs text-text-secondary">Duration</span>
+                <span className="font-dm-mono text-xs text-text-primary">
+                  {Math.floor(out.durationMs / 60000)}m {Math.round((out.durationMs % 60000) / 1000)}s
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Gender mismatch warning */}
+        {scriptOutput?.voiceConfig?.gender && scriptOutput.voiceConfig.gender !== effectiveGender && (
+          <div className="bg-accent-warning/5 border border-accent-warning/30 rounded-md p-3">
+            <p className="font-dm-mono text-[11px] text-accent-warning">
+              ⚠ Voice gender overridden to {effectiveGender}. Make sure your avatar portrait matches.
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => { rerunStep(5); hasRun.current = false; setSubTasksDone([false, false, false, false]); }}
+            className="font-dm-mono text-[11px] text-text-tertiary hover:text-accent-primary transition-colors"
+          >
+            Regenerate audio
+          </button>
+          <button
+            onClick={() => router.push("/create/avatar")}
+            className="flex items-center gap-2 px-6 py-2.5 bg-accent-primary text-bg-base font-syne font-bold text-sm tracking-wider rounded-md hover:bg-accent-hover transition-colors"
+          >
+            CONTINUE <ArrowRight size={14} />
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex-1 flex flex-col p-8 max-w-2xl mx-auto w-full">
+      {/* Voice config display + gender override */}
+      {scriptOutput?.voiceConfig && (
+        <div className="mb-6 bg-bg-surface border border-bg-border rounded-md p-4">
+          <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase block mb-3">
+            Voice Configuration
+          </span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="space-y-1">
+              <p className="font-dm-mono text-xs text-text-secondary">
+                Style: <span className="text-text-primary capitalize">{scriptOutput.voiceConfig.style}</span>
+              </p>
+              <p className="font-dm-mono text-xs text-text-secondary">
+                Reasoning: <span className="text-text-tertiary">{scriptOutput.voiceConfig.reasoning}</span>
+              </p>
+            </div>
+          </div>
+          <div>
+            <p className="font-dm-mono text-[10px] text-text-tertiary mb-2">Gender — override if needed:</p>
+            <div className="flex gap-3">
+              {(["female", "male"] as const).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setGenderOverride(g)}
+                  className={`px-4 py-2 rounded-md font-syne font-bold text-xs tracking-wider transition-colors ${
+                    effectiveGender === g
+                      ? "bg-accent-primary text-bg-base"
+                      : "bg-bg-elevated border border-bg-border text-text-secondary hover:border-accent-primary/50"
+                  }`}
+                >
+                  {g.charAt(0).toUpperCase() + g.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-start gap-5 mb-8">
         <div className="w-14 h-14 rounded-full bg-bg-surface border border-bg-border flex items-center justify-center shrink-0 text-text-tertiary">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

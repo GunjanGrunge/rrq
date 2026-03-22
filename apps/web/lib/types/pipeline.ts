@@ -146,7 +146,9 @@ export type VisualAssetType =
   | "infographic-card"
   | "personality-card"
   | "news-timeline"
-  | "stat-callout";
+  | "stat-callout"
+  | "animated-infographic"
+  | "geo-map";
 
 export interface VisualAsset {
   id: string;

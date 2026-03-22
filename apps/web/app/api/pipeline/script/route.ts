@@ -47,7 +47,7 @@ Return a JSON object with these exact keys:
 - sections: [{ id, label, timestampStart, timestampEnd, wordCount, script, visualNote, toneNote, displayMode, visualAssetId? }]
 - endScreenSuggestion: string
 - cardSuggestions: [{ timestamp, text, linkTarget }]
-- visualAssets: [{ id, sectionId, type, insertAt, duration, animated, data, citations }]
+- visualAssets: [{ id (string), sectionId (string), type (MUST be exactly one of: "comparison-table"|"bar-chart"|"line-chart"|"radar-chart"|"flow-diagram"|"infographic-card"|"personality-card"|"news-timeline"|"stat-callout"), insertAt (timestamp string e.g. "0:45"), duration (number, seconds), animated (boolean), data (object with chart/table data), citations (array of strings — source text like "Reuters, 2024" or full URL — NEVER numbers) }]
 - voiceConfig: { gender: "male"|"female", style: "analytical"|"enthusiastic"|"documentary"|"conversational", reasoning: string }
 - shortsScript?: { hook, body, onScreenText, visualNote, duration } (only if requested)
 

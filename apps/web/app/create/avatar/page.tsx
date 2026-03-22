@@ -7,6 +7,7 @@ import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 import type { ScriptOutput } from "@/lib/types/pipeline";
 import type { AudioGenOutputType } from "@rrq/lambda-types";
+import { CheckCircle, ArrowRight } from "lucide-react";
 
 const SUBTASK_LABELS = [
   "Select presenter based on your topic and niche",
@@ -14,6 +15,94 @@ const SUBTASK_LABELS = [
   "Render presenter video segments",
   "Save presenter clips for final assembly",
 ];
+
+interface AvatarOutput {
+  segments?: Array<{ sectionId: string; s3Key?: string; durationMs?: number }>;
+  avatarId?: string;
+  totalSegments?: number;
+}
+
+function AvatarResult({
+  output,
+  onContinue,
+  onRerun,
+}: {
+  output: AvatarOutput;
+  onContinue: () => void;
+  onRerun: () => void;
+}) {
+  const segments = output.segments ?? [];
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full space-y-6">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-full bg-accent-success/10 border border-accent-success/30 flex items-center justify-center shrink-0">
+          <CheckCircle size={18} className="text-accent-success" />
+        </div>
+        <div>
+          <h1 className="font-syne text-2xl font-bold text-text-primary">Presenter Ready</h1>
+          <p className="font-lora text-sm text-text-secondary mt-1 leading-relaxed">
+            {segments.length > 0
+              ? `${segments.length} presenter segment${segments.length > 1 ? "s" : ""} rendered and saved to S3.`
+              : "Presenter clips generated and saved for final assembly."}
+          </p>
+        </div>
+      </div>
+
+      {output.avatarId && (
+        <div className="bg-bg-surface border border-bg-border rounded-md p-4">
+          <div className="flex items-center justify-between">
+            <span className="font-dm-mono text-xs text-text-secondary">Presenter ID</span>
+            <span className="font-dm-mono text-xs text-text-primary">{output.avatarId}</span>
+          </div>
+        </div>
+      )}
+
+      {segments.length > 0 && (
+        <div className="bg-bg-surface border border-bg-border rounded-md overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-bg-border">
+            <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
+              Presenter Segments ({segments.length})
+            </span>
+          </div>
+          <div className="divide-y divide-bg-border max-h-64 overflow-y-auto">
+            {segments.map((seg, i) => (
+              <div key={seg.sectionId ?? i} className="px-4 py-3 flex items-center gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-accent-success shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-syne text-xs font-bold text-text-primary truncate">{seg.sectionId}</p>
+                  {seg.durationMs && (
+                    <p className="font-dm-mono text-[10px] text-text-tertiary">
+                      {(seg.durationMs / 1000).toFixed(1)}s
+                    </p>
+                  )}
+                </div>
+                {seg.s3Key && (
+                  <span className="font-dm-mono text-[10px] text-accent-success shrink-0">✓ S3</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4">
+        <button
+          onClick={onRerun}
+          className="font-dm-mono text-[11px] text-text-tertiary hover:text-accent-primary transition-colors"
+        >
+          Re-render presenter
+        </button>
+        <button
+          onClick={onContinue}
+          className="flex items-center gap-2 px-6 py-2.5 bg-accent-primary text-bg-base font-syne font-bold text-sm tracking-wider rounded-md hover:bg-accent-hover transition-colors"
+        >
+          B-ROLL <ArrowRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function AvatarPage() {
   const { outputs, jobId, stepStatuses, setStep, setStepOutput, setStepStatus, rerunStep } =
@@ -26,10 +115,11 @@ export default function AvatarPage() {
 
   useEffect(() => { setStep(6); }, [setStep]);
 
+  const avatarOutput = outputs[6] as AvatarOutput | undefined;
+
   useEffect(() => {
-    if (outputs[6]) {
+    if (avatarOutput) {
       if (stepStatuses[6] !== "complete") setStepStatus(6, "complete");
-      router.push("/create/broll");
       return;
     }
     if (stepStatuses[6] === "running") return;
@@ -78,7 +168,6 @@ export default function AvatarPage() {
               if (event.type === "result") {
                 setStepOutput(6, event.data);
                 setStepStatus(6, "complete");
-                router.push("/create/broll");
               }
               if (event.type === "error") throw new Error(event.error ?? "Avatar generation failed");
             } catch (parseErr) {
@@ -104,9 +193,19 @@ export default function AvatarPage() {
           errorMessage={error ?? "Avatar generation failed. This may be a temporary EC2 issue."}
           showDownstreamWarning
           downstreamCount={STEP_DOWNSTREAM[6].length}
-          onRerunStep={() => { rerunStep(6); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false]); router.push("/create/avatar"); }}
+          onRerunStep={() => { rerunStep(6); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false]); }}
         />
       </div>
+    );
+  }
+
+  if (avatarOutput) {
+    return (
+      <AvatarResult
+        output={avatarOutput}
+        onContinue={() => router.push("/create/broll")}
+        onRerun={() => { rerunStep(6); hasRun.current = false; setSubTasksDone([false, false, false, false]); }}
+      />
     );
   }
 

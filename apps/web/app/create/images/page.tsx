@@ -6,6 +6,7 @@ import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 import type { ScriptOutput } from "@/lib/types/pipeline";
+import { CheckCircle, ArrowRight } from "lucide-react";
 
 const SUBTASK_LABELS = [
   "Identify sections that need visual callouts or data graphics",
@@ -14,6 +15,101 @@ const SUBTASK_LABELS = [
   "Quality-check all graphics — retry if needed",
   "Save assets for final video assembly",
 ];
+
+interface ImagesOutput {
+  assets?: Array<{ id: string; type: string; s3Key?: string; status?: string }>;
+  thumbnailS3Key?: string;
+  generatedCount?: number;
+  failedCount?: number;
+}
+
+function ImagesResult({
+  output,
+  onContinue,
+  onRerun,
+}: {
+  output: ImagesOutput;
+  onContinue: () => void;
+  onRerun: () => void;
+}) {
+  const assets = output.assets ?? [];
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full space-y-6">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-full bg-accent-success/10 border border-accent-success/30 flex items-center justify-center shrink-0">
+          <CheckCircle size={18} className="text-accent-success" />
+        </div>
+        <div>
+          <h1 className="font-syne text-2xl font-bold text-text-primary">Graphics Ready</h1>
+          <p className="font-lora text-sm text-text-secondary mt-1 leading-relaxed">
+            {assets.length > 0
+              ? `${assets.length} graphic asset${assets.length > 1 ? "s" : ""} generated and saved to S3.`
+              : "Graphics and images processed and saved for final assembly."}
+          </p>
+        </div>
+      </div>
+
+      {output.thumbnailS3Key && (
+        <div className="bg-bg-surface border border-bg-border rounded-md p-4">
+          <div className="flex items-center justify-between">
+            <span className="font-dm-mono text-xs text-text-secondary">Thumbnail Source</span>
+            <span className="font-dm-mono text-[10px] text-accent-success">✓ S3</span>
+          </div>
+          <p className="font-dm-mono text-[10px] text-text-tertiary mt-1 truncate">{output.thumbnailS3Key}</p>
+        </div>
+      )}
+
+      {assets.length > 0 && (
+        <div className="bg-bg-surface border border-bg-border rounded-md overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-bg-border flex items-center justify-between">
+            <span className="font-dm-mono text-[10px] text-accent-primary tracking-widest uppercase">
+              Assets ({assets.length})
+            </span>
+            {(output.failedCount ?? 0) > 0 && (
+              <span className="font-dm-mono text-[10px] text-accent-error">
+                {output.failedCount} failed
+              </span>
+            )}
+          </div>
+          <div className="divide-y divide-bg-border max-h-64 overflow-y-auto">
+            {assets.map((asset) => (
+              <div key={asset.id} className="px-4 py-3 flex items-center gap-3">
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  asset.status === "success" ? "bg-accent-success" :
+                  asset.status === "failed" ? "bg-accent-error" :
+                  "bg-text-tertiary"
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-syne text-xs font-bold text-text-primary truncate">{asset.id}</p>
+                  <p className="font-dm-mono text-[10px] text-text-tertiary capitalize">{asset.type}</p>
+                </div>
+                {asset.s3Key && (
+                  <span className="font-dm-mono text-[10px] text-accent-success shrink-0">✓ S3</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4">
+        <button
+          onClick={onRerun}
+          className="font-dm-mono text-[11px] text-text-tertiary hover:text-accent-primary transition-colors"
+        >
+          Regenerate graphics
+        </button>
+        <button
+          onClick={onContinue}
+          className="flex items-center gap-2 px-6 py-2.5 bg-accent-primary text-bg-base font-syne font-bold text-sm tracking-wider rounded-md hover:bg-accent-hover transition-colors"
+        >
+          DATA VISUALS <ArrowRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function ImagesPage() {
   const { outputs, jobId, stepStatuses, setStep, setStepOutput, setStepStatus, rerunStep } =
@@ -26,10 +122,11 @@ export default function ImagesPage() {
 
   useEffect(() => { setStep(8); }, [setStep]);
 
+  const imagesOutput = outputs[8] as ImagesOutput | undefined;
+
   useEffect(() => {
-    if (outputs[8]) {
+    if (imagesOutput) {
       if (stepStatuses[8] !== "complete") setStepStatus(8, "complete");
-      router.push("/create/visuals");
       return;
     }
     if (stepStatuses[8] === "running") return;
@@ -77,7 +174,6 @@ export default function ImagesPage() {
               if (event.type === "result") {
                 setStepOutput(8, event.data);
                 setStepStatus(8, "complete");
-                router.push("/create/visuals");
               }
               if (event.type === "error") throw new Error(event.error ?? "Images generation failed");
             } catch (parseErr) {
@@ -103,9 +199,19 @@ export default function ImagesPage() {
           errorMessage={error ?? "Images generation failed."}
           showDownstreamWarning
           downstreamCount={STEP_DOWNSTREAM[8].length}
-          onRerunStep={() => { rerunStep(8); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false, false]); router.push("/create/images"); }}
+          onRerunStep={() => { rerunStep(8); hasRun.current = false; setError(null); setSubTasksDone([false, false, false, false, false]); }}
         />
       </div>
+    );
+  }
+
+  if (imagesOutput) {
+    return (
+      <ImagesResult
+        output={imagesOutput}
+        onContinue={() => router.push("/create/visuals")}
+        onRerun={() => { rerunStep(8); hasRun.current = false; setSubTasksDone([false, false, false, false, false]); }}
+      />
     );
   }
 

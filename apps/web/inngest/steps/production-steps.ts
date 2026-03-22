@@ -130,9 +130,23 @@ export async function runParallelMediaStep(
     }),
 
     // Step 9: Visual Gen Lambda (Chart.js / Mermaid / HTML)
-    scriptOutput.visualAssets && scriptOutput.visualAssets.length > 0
-      ? invokeVisualGen({ jobId, assets: scriptOutput.visualAssets })
-      : Promise.resolve({ assets: [] } as VisualGenOutputType),
+    // Sanitize assets: drop invalid types + coerce citations to strings (guards against Muse hallucinations)
+    (() => {
+      const VALID_TYPES = new Set([
+        "comparison-table", "bar-chart", "line-chart", "radar-chart",
+        "flow-diagram", "infographic-card", "personality-card",
+        "news-timeline", "stat-callout", "animated-infographic", "geo-map",
+      ]);
+      const sanitized = (scriptOutput.visualAssets ?? [])
+        .filter((a) => VALID_TYPES.has(a.type))
+        .map((a) => ({
+          ...a,
+          citations: (a.citations ?? []).map((c) => String(c)),
+        }));
+      return sanitized.length > 0
+        ? invokeVisualGen({ jobId, assets: sanitized })
+        : Promise.resolve({ assets: [] } as VisualGenOutputType);
+    })(),
 
     // Research Visual Lambda (paper figures, screenshots, stock)
     invokeResearchVisual({

@@ -13,7 +13,7 @@ import { ALLOWED_DOMAINS } from "./allowlist";
 
 const bedrock = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 const s3 = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
-const BUCKET = process.env.S3_BUCKET_NAME ?? "content-factory-assets";
+const BUCKET = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 
 // Lazy-init — only created if all attempts fail (keeps happy-path cold start clean)
 let _docClient: DynamoDBDocumentClient | null = null;

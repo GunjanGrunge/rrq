@@ -26,7 +26,7 @@ const dynamo = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const S3_BUCKET           = process.env.S3_BUCKET_NAME ?? "content-factory-assets";
+const S3_BUCKET           = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 const FLUX_PORTRAIT_AMI   = process.env.EC2_FLUX_PORTRAIT_AMI_ID ?? "";
 const EC2_ROLE_ARN        = process.env.EC2_ROLE_ARN ?? "";
 const EC2_SUBNET_ID       = process.env.EC2_SUBNET_ID ?? "";
