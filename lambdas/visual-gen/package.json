@@ -12,8 +12,8 @@
     "@rrq/lambda-types": "*",
     "@rrq/remotion-compositions": "*",
     "@remotion/renderer": "4.0.435",
-    "puppeteer-core": "^24.0.0",
-    "@sparticuz/chromium": "^131.0.0",
+    "puppeteer-core": "^24.40.0",
+    "@sparticuz/chromium": "^143.0.4",
     "zod": "^3.24.0"
   },
   "devDependencies": {
