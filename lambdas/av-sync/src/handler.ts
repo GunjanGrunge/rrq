@@ -119,7 +119,7 @@ export const handler: Handler = async (event) => {
               "-ss", String(startSec),
               "-t", String(durationSec),
               "-filter_complex",
-              `[0:v]scale=${resolution}[bg];[1:v]scale=${avatarScale}[avatar];[bg][avatar]overlay=W-w-20:H-h-20`,
+              `[0:v]scale=${resolution}[bg];[1:v]scale=${avatarScale}[avatar];[bg][avatar]overlay=W-w-20:H-h-20[v]`,
               "-map", "[v]",
               "-map", "2:a",
               "-c:v", "libx264",
@@ -282,7 +282,7 @@ export const handler: Handler = async (event) => {
 
     // ── Upload final video ────────────────────────────────────────
     const finalBuffer = await readFile(finalOutputPath);
-    const finalS3Key = `jobs/${input.jobId}/final/youtube_final.mp4`;
+    const finalS3Key = `jobs/${input.jobId}/final_youtube.mp4`;
     await uploadToS3(finalS3Key, finalBuffer, "video/mp4");
 
     const fileSize = await getFileSize(finalOutputPath);

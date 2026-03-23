@@ -21,9 +21,9 @@ export async function POST(req: Request) {
       emit({ type: "status_line", message: "Designing section cards and concept visuals…" });
       emit({ type: "stage_complete", stageIndex: 1 });
 
-      // Run TONY tasks from the script (if any), else run a thumbnail generation task
       const tonyTasks = scriptOutput?.tonyTasks ?? [];
-      const results: Array<{ task: string; s3Key?: string; success: boolean }> = [];
+      const assets: Array<{ id: string; type: string; s3Key?: string; status: string }> = [];
+      let thumbnailS3Key: string | undefined;
 
       if (tonyTasks.length > 0) {
         emit({ type: "status_line", message: `Running ${tonyTasks.length} TONY task(s)…` });
@@ -37,14 +37,25 @@ export async function POST(req: Request) {
               outputType: task.outputType as "data" | "chart" | "report" | "scrape",
               timeoutMs: 30_000,
             });
-            results.push({ task: task.task, s3Key: output.s3Key, success: output.success });
+            const assetId = (task.context?.sectionId as string | undefined) ?? task.task.slice(0, 32);
+            const entry = {
+              id: assetId,
+              type: task.outputType,
+              s3Key: output.s3Key,
+              status: output.success ? "success" : "failed",
+            };
+            assets.push(entry);
+            // First chart task becomes the thumbnail candidate
+            if (!thumbnailS3Key && output.success && output.s3Key) {
+              thumbnailS3Key = output.s3Key;
+            }
           } catch (taskErr) {
             console.warn(`[api/pipeline/images:${userId}:${jobId}] TONY task failed:`, taskErr);
-            results.push({ task: task.task, success: false });
+            assets.push({ id: task.task.slice(0, 32), type: task.outputType, status: "failed" });
           }
         }
       } else {
-        // Generate thumbnail source using TONY
+        // No tonyTasks — generate thumbnail source via TONY
         emit({ type: "status_line", message: "Creating thumbnail source image…" });
         try {
           const thumbnailOutput = await invokeCodeAgent({
@@ -55,10 +66,16 @@ export async function POST(req: Request) {
             outputType: "chart",
             timeoutMs: 30_000,
           });
-          results.push({ task: "thumbnail", s3Key: thumbnailOutput.s3Key, success: thumbnailOutput.success });
+          thumbnailS3Key = thumbnailOutput.s3Key;
+          assets.push({
+            id: "thumbnail",
+            type: "chart",
+            s3Key: thumbnailOutput.s3Key,
+            status: thumbnailOutput.success ? "success" : "failed",
+          });
         } catch (thumbErr) {
           console.warn(`[api/pipeline/images:${userId}:${jobId}] Thumbnail task failed:`, thumbErr);
-          results.push({ task: "thumbnail", success: false });
+          assets.push({ id: "thumbnail", type: "chart", status: "failed" });
         }
       }
 
@@ -68,11 +85,16 @@ export async function POST(req: Request) {
       emit({ type: "status_line", message: "Saving assets for final assembly…" });
       emit({ type: "stage_complete", stageIndex: 4 });
 
+      const generatedCount = assets.filter((a) => a.status === "success").length;
+      const failedCount = assets.filter((a) => a.status === "failed").length;
+
       emit({
         type: "result",
         data: {
-          assets: results.filter((r) => r.s3Key).map((r) => ({ s3Key: r.s3Key!, task: r.task })),
-          tonyResults: results,
+          assets,
+          thumbnailS3Key,
+          generatedCount,
+          failedCount,
         },
       });
     } catch (err) {

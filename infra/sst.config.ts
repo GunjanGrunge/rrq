@@ -175,6 +175,12 @@ export default $config({
         LAMBDA_CODE_AGENT: "rrq-code-agent",
       },
       link: [assetsBucket],
+      permissions: [
+        {
+          actions: ["bedrock:InvokeModel"],
+          resources: ["arn:aws:bedrock:us-east-1::foundation-model/*"],
+        },
+      ],
     });
 
     return {

@@ -6,7 +6,14 @@ import { usePipelineStore, STEP_DOWNSTREAM } from "@/lib/pipeline-store";
 import { StepFailureCard } from "@/components/pipeline/StepFailureCard";
 import PipelineStepWaiting from "@/components/pipeline/PipelineStepWaiting";
 import type { ScriptOutput } from "@/lib/types/pipeline";
-import type { AudioGenOutputType, AvSyncOutputType } from "@rrq/lambda-types";
+import type {
+  AudioGenOutputType,
+  AvSyncOutputType,
+  SkyReelsOutputType,
+  Wan2OutputType,
+  VisualGenOutputType,
+  ResearchVisualOutputType,
+} from "@rrq/lambda-types";
 import { CheckCircle, ArrowRight, Film } from "lucide-react";
 
 const SUBTASK_LABELS = [
@@ -118,13 +125,26 @@ export default function AVSyncPage() {
 
     const scriptOutput = outputs[2] as ScriptOutput | undefined;
     const audioOutput = outputs[5] as AudioGenOutputType | undefined;
+    // Pull all prior media step outputs so av-sync can wire S3 keys into each segment
+    const avatarOutput = outputs[6] as SkyReelsOutputType | undefined;
+    const brollOutput = outputs[7] as Wan2OutputType | undefined;
+    const visualsOutput = outputs[9] as VisualGenOutputType | undefined;
+    const researchVisualsOutput = outputs[8] as ResearchVisualOutputType | undefined;
 
     (async () => {
       try {
         const res = await fetch("/api/pipeline/av-sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, scriptOutput, audioOutput }),
+          body: JSON.stringify({
+            jobId,
+            scriptOutput,
+            audioOutput,
+            avatarOutput,
+            brollOutput,
+            visualsOutput,
+            researchVisualsOutput,
+          }),
         });
 
         if (!res.ok || !res.body) throw new Error(`AV Sync API returned ${res.status}`);

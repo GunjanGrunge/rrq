@@ -24,8 +24,8 @@ import type { Wan2InputType, Wan2OutputType } from "@rrq/lambda-types";
 const REPLICATE_BASE_URL  = process.env.REPLICATE_BASE_URL ?? "https://api.replicate.com";
 const S3_BUCKET           = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 
-/** wan-video/wan2.2-t2v on Replicate — text-to-video b-roll */
-const WAN2_MODEL = "wan-video/wan2.2-t2v";
+/** wavespeedai/wan-2.1-t2v-480p on Replicate — text-to-video b-roll */
+const WAN2_MODEL = "wavespeedai/wan-2.1-t2v-480p";
 
 /** Max wait for all beats to render (20 min) */
 const POLL_TIMEOUT_MS  = 20 * 60 * 1000;

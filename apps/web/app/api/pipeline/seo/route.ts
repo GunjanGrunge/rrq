@@ -67,9 +67,13 @@ Return ONLY the JSON object, no markdown fences.`;
 // ─── POST handler ───────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const internalSecret = process.env.INNGEST_SIGNING_KEY;
+  const isInternal = internalSecret && req.headers.get("x-rrq-internal") === internalSecret;
+  if (!isInternal) {
+    const { userId } = await auth();
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   const body = await req.json();

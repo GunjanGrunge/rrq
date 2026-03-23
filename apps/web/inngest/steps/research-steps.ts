@@ -56,6 +56,13 @@ async function consumeSSEResult<T>(res: Response, label: string): Promise<T> {
   throw new Error(`${label}: SSE stream ended without a result event`);
 }
 
+function internalHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-rrq-internal": process.env.INNGEST_SIGNING_KEY ?? "",
+  };
+}
+
 export async function runResearchStep(
   appUrl: string,
   topic: string,
@@ -63,7 +70,7 @@ export async function runResearchStep(
 ): Promise<ResearchOutput> {
   const res = await fetch(`${appUrl}/api/pipeline/research`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: internalHeaders(),
     body: JSON.stringify({ topic, duration: 10, tone: "informative", ...ctx }),
   });
   return consumeSSEResult<ResearchOutput>(res, "Research");
@@ -78,7 +85,7 @@ export async function runScriptStep(
 ): Promise<ScriptOutput> {
   const res = await fetch(`${appUrl}/api/pipeline/script`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: internalHeaders(),
     body: JSON.stringify({ researchOutput, duration, tone, ...ctx }),
   });
   return consumeSSEResult<ScriptOutput>(res, "Script");
@@ -91,7 +98,7 @@ export async function runSeoStep(
 ): Promise<SEOOutput> {
   const res = await fetch(`${appUrl}/api/pipeline/seo`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: internalHeaders(),
     body: JSON.stringify({ researchOutput, scriptOutput, generateShorts: true }),
   });
   return consumeSSEResult<SEOOutput>(res, "SEO");
@@ -107,7 +114,7 @@ export async function runQualityStep(
 ): Promise<QualityGateOutput> {
   const res = await fetch(`${appUrl}/api/pipeline/quality`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: internalHeaders(),
     body: JSON.stringify({
       researchOutput, scriptOutput, seoOutput,
       attempt, qualityThreshold,

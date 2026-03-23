@@ -309,6 +309,7 @@ export default function UploadPage() {
   const seoOutput = outputs[3] as SEOOutput | undefined;
   const avSyncOutput = outputs[10] as AvSyncOutputType | undefined;
   const shortsOutput = outputs[12] as ShortsGenOutputType | undefined;
+  const imagesOutput = outputs[8] as { thumbnailS3Key?: string } | undefined;
 
   // If output exists, stay on page and show result
   useEffect(() => {
@@ -331,7 +332,7 @@ export default function UploadPage() {
       const res = await fetch("/api/pipeline/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, seoOutput, avSyncOutput, shortsOutput }),
+        body: JSON.stringify({ jobId, seoOutput, avSyncOutput, shortsOutput, imagesOutput }),
       });
 
       if (!res.ok || !res.body) throw new Error(`Upload API returned ${res.status}`);

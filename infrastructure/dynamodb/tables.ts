@@ -726,6 +726,48 @@ export const DYNAMO_TABLES: DynamoTableConfig[] = [
     billingMode:  "PAY_PER_REQUEST",
     description:  "Latest FingerprintJS visitorId hash per user — 90d TTL session tracking.",
   },
+
+  // ─── RRQ Retro sessions ───────────────────────────────────────────────────
+  {
+    tableName: "retro-sessions",
+    partitionKey: { name: "sessionId", type: "S" },
+    sortKey: { name: "jobId", type: "S" },
+    gsi: [
+      {
+        indexName: "jobId-createdAt-index",
+        partitionKey: { name: "jobId", type: "S" },
+        sortKey: { name: "createdAt", type: "S" },
+        projectionType: "ALL",
+      },
+    ],
+    billingMode: "PAY_PER_REQUEST",
+    description: "RRQ Retro session records — Day 2 and Day 7 review state, daily monitor checks",
+  },
+
+  // ─── Zeus channel performance targets ────────────────────────────────────
+  {
+    tableName: "channel-targets",
+    partitionKey: { name: "channelId", type: "S" },
+    sortKey: { name: "targetId", type: "S" },
+    billingMode: "PAY_PER_REQUEST",
+    description: "Zeus performance targets per channel — CTR, retention, views goals",
+  },
+
+  // ─── Regum playlist registry ──────────────────────────────────────────────
+  {
+    tableName: "regum-playlists",
+    partitionKey: { name: "playlistId", type: "S" },
+    gsi: [
+      {
+        indexName: "channelId-createdAt-index",
+        partitionKey: { name: "channelId", type: "S" },
+        sortKey: { name: "createdAt", type: "S" },
+        projectionType: "ALL",
+      },
+    ],
+    billingMode: "PAY_PER_REQUEST",
+    description: "Regum playlist configuration and video assignment tracking",
+  },
 ];
 
 /** Convenience lookup by table name */

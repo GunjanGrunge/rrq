@@ -7,6 +7,28 @@ import {
 import { getYouTubeClient } from "./youtube-client";
 import { getS3Stream } from "./s3";
 
+/**
+ * Sanitize YouTube tags:
+ * - Strip tags longer than 100 chars (YouTube limit per tag is 500 but Muse sometimes generates sentences)
+ * - Remove tags containing < > & characters (rejected by YouTube API)
+ * - Deduplicate, limit to 500 total chars combined (YouTube hard limit)
+ */
+function sanitizeTags(tags: string[] | undefined): string[] {
+  if (!tags?.length) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  let totalChars = 0;
+  for (const tag of tags) {
+    const t = tag.trim().replace(/[<>&"]/g, "").substring(0, 100);
+    if (!t || seen.has(t.toLowerCase())) continue;
+    if (totalChars + t.length > 500) break;
+    seen.add(t.toLowerCase());
+    result.push(t);
+    totalChars += t.length;
+  }
+  return result;
+}
+
 const CATEGORY_MAP: Record<string, string> = {
   "Science & Technology": "28",
   Education: "27",
@@ -48,7 +70,7 @@ export const handler: Handler = async (event) => {
         snippet: {
           title: input.mainVideo.title,
           description: input.mainVideo.description,
-          tags: input.mainVideo.tags,
+          tags: sanitizeTags(input.mainVideo.tags),
           categoryId,
           defaultLanguage: "en",
           defaultAudioLanguage: "en",
@@ -134,7 +156,7 @@ export const handler: Handler = async (event) => {
             snippet: {
               title: input.short.title,
               description: input.short.description,
-              tags: input.short.hashtags,
+              tags: sanitizeTags(input.short.hashtags),
               categoryId,
             },
             status: {

@@ -49,6 +49,7 @@ Return a JSON object with these exact keys:
 - cardSuggestions: [{ timestamp, text, linkTarget }]
 - visualAssets: [{ id (string), sectionId (string), type (MUST be exactly one of: "comparison-table"|"bar-chart"|"line-chart"|"radar-chart"|"flow-diagram"|"infographic-card"|"personality-card"|"news-timeline"|"stat-callout"), insertAt (timestamp string e.g. "0:45"), duration (number, seconds), animated (boolean), data (object with chart/table data), citations (array of strings — source text like "Reuters, 2024" or full URL — NEVER numbers) }]
 - voiceConfig: { gender: "male"|"female", style: "analytical"|"enthusiastic"|"documentary"|"conversational", reasoning: string }
+- tonyTasks: [{ task (string — clear instruction for a code agent, e.g. "Generate a bar chart comparing X vs Y"), context (object — include sectionId, title, any data needed), outputType ("chart"|"data"|"report") }] — generate 1-3 tasks for sections that would benefit from a data-driven chart, infographic, or stat callout. Always include one task for the thumbnail (outputType "chart", context.sectionId "thumbnail", describing the key hook visually). Leave empty array [] if topic has no data to visualise.
 - shortsScript?: { hook, body, onScreenText, visualNote, duration } (only if requested)
 
 Return ONLY the JSON object, no markdown fences.`;
@@ -56,9 +57,13 @@ Return ONLY the JSON object, no markdown fences.`;
 // ─── POST handler ───────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const internalSecret = process.env.INNGEST_SIGNING_KEY;
+  const isInternal = internalSecret && req.headers.get("x-rrq-internal") === internalSecret;
+  if (!isInternal) {
+    const { userId } = await auth();
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   const body = await req.json();

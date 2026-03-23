@@ -91,8 +91,11 @@ export async function runParallelMediaStep(
       };
     });
 
+  // Verify Replicate token is available before firing (helps diagnose env issues)
+  console.log(`[production][${jobId}] REPLICATE_API_TOKEN set: ${!!process.env.REPLICATE_API_TOKEN}, avatarBeats: ${avatarBeats.length}, brollBeats: ${brollBeats.length}`);
+
   const results = await Promise.allSettled([
-    // Step 6: Avatar — SkyReels V2 EC2 (Phase 4a)
+    // Step 6: Avatar — SadTalker via Replicate (EC2 deferred — quota pending)
     avatarBeats.length > 0
       ? runSkyReelsInstance(jobId, {
           jobId,
@@ -108,7 +111,7 @@ export async function runParallelMediaStep(
           renderTimeMs: 0,
         } satisfies SkyReelsOutputType),
 
-    // Step 7: B-Roll — Wan2.2 EC2 (Phase 4b — non-critical, falls back to stock on failure)
+    // Step 7: B-Roll — Wan2.2 via Replicate (EC2 deferred — quota pending; non-critical, falls back on failure)
     brollBeats.length > 0
       ? runWan2Instance(jobId, {
           jobId,
@@ -122,10 +125,10 @@ export async function runParallelMediaStep(
           renderTimeMs: 0,
         } satisfies Wan2OutputType),
 
-    // Step 8: Images — FLUX EC2 (Phase 4c stub)
+    // Step 8: Images — TONY Lambda handles thumbnails/infographics (EC2 FLUX deferred — quota pending)
     Promise.resolve({
       status: "stub" as const,
-      message: "Image generation requires Phase 4c FLUX EC2",
+      message: "TONY Lambda handles image generation via /api/pipeline/images in Studio Mode",
       images: [] as string[],
     }),
 
@@ -178,6 +181,20 @@ export async function runParallelMediaStep(
       : Promise.resolve(null),
   ]);
 
+  // Log any failures so they appear in Inngest dashboard + CloudWatch
+  if (results[0].status === "rejected") {
+    console.error(`[production][${jobId}] SkyReels/avatar FAILED:`, (results[0] as PromiseRejectedResult).reason);
+  }
+  if (results[1].status === "rejected") {
+    console.error(`[production][${jobId}] Wan2/broll FAILED:`, (results[1] as PromiseRejectedResult).reason);
+  }
+  if (results[3].status === "rejected") {
+    console.error(`[production][${jobId}] VisualGen FAILED:`, (results[3] as PromiseRejectedResult).reason);
+  }
+  if (results[4].status === "rejected") {
+    console.error(`[production][${jobId}] ResearchVisual FAILED:`, (results[4] as PromiseRejectedResult).reason);
+  }
+
   return {
     avatar: results[0].status === "fulfilled"
       ? (results[0].value as SkyReelsOutputType)
@@ -210,8 +227,17 @@ export async function runAvSyncStep(
   const skyreelsSegments =
     "segments" in mediaResults.avatar ? mediaResults.avatar.segments : [];
   const wan2Segments = mediaResults.broll.segments ?? [];
+  const visualGenAssets = mediaResults.visuals.assets ?? [];
+  const researchVisualAssets = mediaResults.researchVisuals.assets ?? [];
 
-  const segments = buildSegments(scriptOutput.sections, audioOutput, skyreelsSegments, wan2Segments);
+  const segments = buildSegments(
+    scriptOutput.sections,
+    audioOutput,
+    skyreelsSegments,
+    wan2Segments,
+    visualGenAssets,
+    researchVisualAssets
+  );
   const srtContent = buildSRT(scriptOutput.sections, audioOutput);
 
   return invokeAvSync({

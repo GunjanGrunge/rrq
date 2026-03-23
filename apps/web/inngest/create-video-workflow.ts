@@ -82,10 +82,14 @@ export const createVideoWorkflow = inngest.createFunction(
       runAvSyncStep(jobId, sanitizedScriptOutput, audioOutput, mediaResults)
     );
 
-    // ── Step 11: Vera QA (Phase 12 stub) ──────────────────────────────
+    // ── Step 11: Vera QA — S3 existence + file size check ────────────
     const veraOutput = await step.run("step-11-vera-qa", () =>
-      runVeraQAStep()
+      runVeraQAStep(avSyncOutput)
     );
+
+    if (!veraOutput.cleared) {
+      throw new Error(`[pipeline] Vera QA blocked upload: ${veraOutput.message}`);
+    }
 
     // ── Step 12: Shorts Generation ────────────────────────────────────
     const shortsOutput: ShortsGenOutputType = await step.run("step-12-shorts", () =>

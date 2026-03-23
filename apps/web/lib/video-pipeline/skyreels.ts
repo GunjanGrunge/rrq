@@ -1,10 +1,12 @@
 /**
- * Avatar / Talking Head — Replicate SadTalker
+ * Avatar / Talking Head — Replicate OmniHuman 1.5 (ByteDance)
  *
- * Replaces EC2 g5.12xlarge SkyReels V2 spot instance.
- * lucataco/sadtalker: portrait image + audio → lip-synced talking head MP4.
+ * Replaces SadTalker (poor lip sync quality).
+ * bytedance/omni-human-1.5: portrait image + audio → film-grade talking head MP4.
+ * Proper phoneme-aware lip sync, natural head motion, expressive body language.
  *
- * Audio is served via pre-signed S3 URL so Replicate can fetch it directly.
+ * Inputs: image_url (presigned S3), audio_url (presigned S3), optional prompt
+ * Max audio duration per segment: 35 seconds
  *
  * Failure mode: CRITICAL — throws on error. Caller uses Promise.allSettled().
  *
@@ -26,8 +28,8 @@ import type { SkyReelsInputType, SkyReelsOutputType } from "@rrq/lambda-types";
 const REPLICATE_BASE_URL  = process.env.REPLICATE_BASE_URL ?? "https://api.replicate.com";
 const S3_BUCKET           = process.env.S3_BUCKET_NAME ?? "rrq-content-fa-gunjansarkar-contentfactoryassetsbucket-srcbvfzu";
 
-/** cjwbw/sadtalker on Replicate — portrait + audio → talking head MP4 */
-const SADTALKER_VERSION = "a519cc0cfebaaeade068b23899165a11ec76aaa1d2b313d40d214f204ec957a3";
+/** bytedance/omni-human-1.5 on Replicate — portrait + audio → talking head MP4 */
+const OMNIHUMAN_MODEL = "bytedance/omni-human-1.5";
 
 /** Default avatar reference image S3 key prefix */
 const AVATAR_S3_PREFIX = "avatars";
@@ -65,11 +67,12 @@ async function resolveAudioKey(s3Key: string, fallbackKey: string): Promise<stri
   }
 }
 
-async function createSadTalkerPrediction(
+async function createOmniHumanPrediction(
   portraitUrl: string,
   audioUrl:    string,
+  prompt?:     string,
 ): Promise<string> {
-  const res = await fetch(`${REPLICATE_BASE_URL}/v1/predictions`, {
+  const res = await fetch(`${REPLICATE_BASE_URL}/v1/models/${OMNIHUMAN_MODEL}/predictions`, {
     method:  "POST",
     headers: {
       "Authorization": `Bearer ${process.env.REPLICATE_API_TOKEN ?? ""}`,
@@ -77,25 +80,17 @@ async function createSadTalkerPrediction(
       "Prefer":        "respond-async",
     },
     body: JSON.stringify({
-      version: SADTALKER_VERSION,
       input: {
-        source_image:     portraitUrl,
-        driven_audio:     audioUrl,
-        facerender:       "facevid2vid",
-        preprocess:       "crop",
-        still_mode:       true,
-        use_enhancer:     true,
-        use_eyeblink:     true,
-        size_of_image:    256,
-        expression_scale: 1,
-        pose_style:       0,
+        image: portraitUrl,
+        audio: audioUrl,
+        ...(prompt ? { prompt } : {}),
       },
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`[skyreels] Replicate create failed (${res.status}): ${body}`);
+    throw new Error(`[skyreels] Replicate OmniHuman create failed (${res.status}): ${body}`);
   }
 
   const json = await res.json() as ReplicatePrediction;
@@ -171,7 +166,7 @@ export async function runSkyReelsInstance(
 
   const startMs = Date.now();
 
-  console.log(`[skyreels][${jobId}] Starting ${input.beats.length} beat(s) via Replicate SadTalker`);
+  console.log(`[skyreels][${jobId}] Starting ${input.beats.length} beat(s) via Replicate OmniHuman 1.5`);
 
   // Pre-sign the portrait reference image URL (valid 1hr — enough for all beats)
   const portraitS3Key  = `${AVATAR_S3_PREFIX}/${input.avatarId}/reference.jpg`;
@@ -189,7 +184,7 @@ export async function runSkyReelsInstance(
 
     console.log(`[skyreels][${jobId}] Processing beat: ${beat.sectionId}`);
 
-    const predictionId = await createSadTalkerPrediction(portraitUrl, audioUrl);
+    const predictionId = await createOmniHumanPrediction(portraitUrl, audioUrl);
     const videoUrl     = await pollPrediction(predictionId);
 
     await downloadAndUploadToS3(videoUrl, s3Key);

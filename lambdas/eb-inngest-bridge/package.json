@@ -1,0 +1,14 @@
+{
+  "name": "@rrq/lambda-eb-inngest-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc --outDir dist && ncc build dist/handler.js -o bundle --minify",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5"
+  }
+}
