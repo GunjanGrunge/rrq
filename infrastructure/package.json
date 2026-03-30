@@ -11,10 +11,10 @@
     "tables:seed": "tsx dynamodb/seed.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-agent": "^3.0.0",
-    "@aws-sdk/client-bedrock-agent-runtime": "^3.0.0",
-    "@aws-sdk/client-dynamodb": "^3.0.0",
-    "@aws-sdk/client-eventbridge": "^3.0.0",
+    "@aws-sdk/client-bedrock-agent": "^3.1019.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.1019.0",
+    "@aws-sdk/client-dynamodb": "^3.1019.0",
+    "@aws-sdk/client-eventbridge": "^3.1019.0",
     "@aws-sdk/util-dynamodb": "^3.0.0"
   },
   "devDependencies": {
