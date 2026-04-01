@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "sst": "^3.0.0",
+    "sst": "^4.6.9",
     "@rrq/lambda-types": "*"
   },
   "devDependencies": {
