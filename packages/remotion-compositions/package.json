@@ -32,7 +32,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@remotion/cli": "4.0.435",
-    "typescript": "^5"
+    "typescript": "^6"
   },
   "peerDependencies": {
     "react": "^19.x",
