@@ -2,10 +2,6 @@
 
 > **Your AI Content Manager. Research, script, produce, upload — you stay in control of what matters.**
 
-
-
----
-
 ## What It Does
 
 RRQ is an end-to-end AI content factory for YouTube creators. It orchestrates the full production lifecycle — from market signal detection and script generation through to GPU-accelerated video rendering and platform upload — in a single automated pipeline.
