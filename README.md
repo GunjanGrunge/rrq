@@ -2,7 +2,7 @@
 
 > **Your AI Content Manager. Research, script, produce, upload — you stay in control of what matters.**
 
-Built by **Vayu Innovation**.
+
 
 ---
 
